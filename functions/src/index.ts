@@ -85,8 +85,14 @@ interface ProjectDataModel {
   synopsis?: string;
   genre?: string;
   duration?: number;
+  trimStartOffset?: number;
+  trimEndOffset?: number;
+  videoUrl?: string | null;
+  presetClipId?: string | null;
   characters?: CharacterModel[];
   lines?: ScriptLineModel[];
+  takes?: any[];
+  players?: any[];
   authorId?: string | null;
   authorName?: string;
   authorEmail?: string | null;

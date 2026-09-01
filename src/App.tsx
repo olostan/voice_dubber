@@ -371,6 +371,8 @@ export default function App() {
         synopsis: scriptData.synopsis,
         genre: scriptData.genre,
         duration,
+        trimStartOffset: videoSource?.trimStartOffset || 0,
+        trimEndOffset: videoSource?.trimEndOffset || 0,
         characters,
         lines: scriptData.lines,
         players,
@@ -485,10 +487,16 @@ export default function App() {
         width: 1280,
         height: 720,
         hasAudioTrack: true,
+        trimStartOffset: project.trimStartOffset || 0,
+        trimEndOffset: project.trimEndOffset || 0,
       });
       setPresetClip(null);
     } else if (localCached && localCached.videoSource) {
-      setVideoSource(localCached.videoSource);
+      setVideoSource({
+        ...localCached.videoSource,
+        trimStartOffset: project.trimStartOffset ?? localCached.videoSource.trimStartOffset ?? 0,
+        trimEndOffset: project.trimEndOffset ?? localCached.videoSource.trimEndOffset ?? 0,
+      });
       setCurrentVideoBlob(localCached.videoBlob);
       setPresetClip(localCached.presetClip);
     } else {
@@ -1091,6 +1099,8 @@ export default function App() {
         .filter((l) => l.endTime > 0.2),
     }));
 
+    setHasUnsavedChanges(true);
+
     setNotificationToast({
       message: `✂️ Trimmed start: removed 0:00 → ${cutTime.toFixed(1)}s (New duration: ${newDuration.toFixed(1)}s).`,
       type: 'info',
@@ -1104,6 +1114,7 @@ export default function App() {
     stopPlayback();
 
     const newDuration = Math.max(1, parseFloat(cutTime.toFixed(2)));
+    const cutAmount = duration - newDuration;
 
     setDuration(newDuration);
     setCurrentTime((prev) => Math.min(prev, newDuration));
@@ -1113,6 +1124,7 @@ export default function App() {
         ? {
             ...prev,
             duration: newDuration,
+            trimEndOffset: (prev.trimEndOffset || 0) + cutAmount,
           }
         : null
     );
@@ -1137,6 +1149,8 @@ export default function App() {
           endTime: Math.min(l.endTime, parseFloat(newDuration.toFixed(1))),
         })),
     }));
+
+    setHasUnsavedChanges(true);
 
     setNotificationToast({
       message: `✂️ Trimmed end: removed ${cutTime.toFixed(1)}s → ${duration.toFixed(1)}s (New duration: ${newDuration.toFixed(1)}s).`,

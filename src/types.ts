@@ -69,6 +69,7 @@ export interface VideoSource {
   hasAudioTrack: boolean;
   thumbnailUrl?: string;
   trimStartOffset?: number;
+  trimEndOffset?: number;
 }
 
 export interface JudgePlayerScore {

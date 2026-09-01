@@ -24,6 +24,8 @@ export interface CloudProjectPayload {
   synopsis?: string;
   genre?: string;
   duration: number;
+  trimStartOffset?: number;
+  trimEndOffset?: number;
   characters: Character[];
   lines: ScriptLine[];
   players?: Player[];

@@ -31,6 +31,7 @@ interface SavedVideoSourceData {
   height: number;
   hasAudioTrack: boolean;
   trimStartOffset?: number;
+  trimEndOffset?: number;
   videoBlob?: Blob; // Stored for screen captures & uploads
 }
 
@@ -120,6 +121,7 @@ export async function saveDubSession(
         height: session.videoSource.height,
         hasAudioTrack: session.videoSource.hasAudioTrack,
         trimStartOffset: session.videoSource.trimStartOffset,
+        trimEndOffset: session.videoSource.trimEndOffset,
         videoBlob: blobToSave || undefined,
       };
     }
@@ -248,6 +250,7 @@ export async function loadDubSession(projectId?: string | null): Promise<{
           height: data.height,
           hasAudioTrack: data.hasAudioTrack,
           trimStartOffset: data.trimStartOffset,
+          trimEndOffset: data.trimEndOffset,
         };
       }
     }
