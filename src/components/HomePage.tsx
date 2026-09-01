@@ -213,9 +213,19 @@ export const HomePage: React.FC<HomePageProps> = ({
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, duration: 0.6 }}
           >
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-bold uppercase tracking-wider mb-4 shadow-inner">
-              <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-              <span>Multi-Voice Video Dubbing & Comedy Studio</span>
+            <div className="flex flex-wrap items-center justify-center gap-2.5 mb-4">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-bold uppercase tracking-wider shadow-inner">
+                <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                <span>Multi-Voice Video Dubbing & Comedy Studio</span>
+              </div>
+
+              {/* Special Damian Edition Animated Pill */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/25 via-rose-500/25 to-orange-500/25 border border-amber-400/50 text-amber-300 text-xs font-extrabold uppercase tracking-wider shadow-lg shadow-amber-950/40 hover:scale-105 transition-all cursor-default animate-pulse">
+                <Sparkles className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-300 via-rose-300 to-amber-200">
+                  Damian Edition ✨
+                </span>
+              </div>
             </div>
 
             <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black font-['Outfit'] tracking-tight leading-[1.08] text-white">
@@ -473,8 +483,8 @@ export const HomePage: React.FC<HomePageProps> = ({
               <span>Fun Voice Dubber © 2026</span>
             </div>
             <span className="hidden sm:inline text-zinc-700">|</span>
-            <p className="text-zinc-500 text-xs">
-              Client-Side Parody & Vocal Dubbing Studio powered by Web Audio API & Gemini AI
+            <p className="text-zinc-400 text-xs">
+              Crafted with ❤️ for <span className="text-amber-300 font-bold">Damian</span> & creative dubbers everywhere
             </p>
           </div>
 

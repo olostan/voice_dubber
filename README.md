@@ -1,6 +1,8 @@
-# Voice Dubber - Video Dubbing Game 🎙️🎭
+# Voice Dubber - Video Dubbing Game (Damian Edition ✨) 🎙️🎭
 
-**Voice Dubber** is a collaborative video voiceover and dubbing party game built with React 19, TypeScript, Tailwind CSS, Web Audio API, Firebase (Hosting, Auth, Firestore, Cloud Functions), and Google Gemini AI.
+> **✨ Damian Edition**: Built with love for Damian and creators everywhere!
+
+**Fun Voice Dubber** is a collaborative video voiceover and dubbing party game built with React 19, TypeScript, Tailwind CSS, Web Audio API, Firebase (Hosting, Auth, Firestore, Cloud Functions), and Google Gemini AI.
 
 Capture any browser tab or screen with sound (YouTube, memes, cartoons, gameplay), record multi-character voiceover takes with real-time DSP voice effects (Villain, Chipmunk, Robot, Radio, Megaphone, Reverb), generate comedic AI scripts and auto-transcriptions, fine-tune timeline waveforms, drop live soundboard SFX, and get scored by an AI Comedy Judge!
 
