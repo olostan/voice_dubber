@@ -1596,7 +1596,17 @@ export default function App() {
           setHasUnsavedChanges(true);
         }}
         onOpenAiJudge={() => setIsAiJudgeOpen(true)}
-        onOpenShowtime={() => setIsShowtimeOpen(true)}
+        onOpenShowtime={() => {
+          if (audioTakes.length === 0) {
+            setNotificationToast({
+              message: '🎙️ Record at least 1 voice dub line before launching Showtime!',
+              type: 'info',
+            });
+            setTimeout(() => setNotificationToast(null), 4000);
+            return;
+          }
+          setIsShowtimeOpen(true);
+        }}
         onOpenShare={() => setIsShareOpen(true)}
         onOpenPrivacy={(tab) => {
           setPrivacyInitialTab(tab || 'privacy');
@@ -1907,6 +1917,7 @@ export default function App() {
         onVolumeChange={setVideoVolume}
         projectTitle={scriptData.scriptTitle}
         onOpenShare={() => setIsShareOpen(true)}
+        hasTakes={audioTakes.length > 0}
       />
 
       {/* Share Dub Modal */}

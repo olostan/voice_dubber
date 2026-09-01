@@ -193,11 +193,83 @@ app.get("/api/user/projects", async (req: Request, res: Response) => {
   }
 });
 
+const MAX_PROJECTS_PER_USER = 30;
+const MAX_UPLOADS_24H = 20;
+
+// Helper to enforce misuse protection limits
+async function checkMisuseProtection(
+  db: FirebaseFirestore.Firestore | null,
+  identifier: string,
+  isNewProject: boolean
+): Promise<string | null> {
+  if (!db) return null;
+
+  // 1. Sliding window rate limit (24 hours)
+  try {
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const recentUploadsSnap = await db
+      .collection("upload_logs")
+      .where("identifier", "==", identifier)
+      .where("timestamp", ">=", oneDayAgo)
+      .get();
+
+    if (recentUploadsSnap.size >= MAX_UPLOADS_24H) {
+      return `Daily upload limit reached (${MAX_UPLOADS_24H} dubs per 24 hours). Please try again tomorrow.`;
+    }
+  } catch (err) {
+    console.warn("Rate limit verification error:", err);
+  }
+
+  // 2. Maximum projects cap per user
+  if (isNewProject && identifier !== "anonymous") {
+    try {
+      const userProjectsSnap = await db
+        .collection("projects")
+        .where("authorId", "==", identifier)
+        .get();
+
+      if (userProjectsSnap.size >= MAX_PROJECTS_PER_USER) {
+        return `Project limit reached (Maximum ${MAX_PROJECTS_PER_USER} dubs). Please delete an older project from "My Dubs" to save a new one.`;
+      }
+    } catch (err) {
+      console.warn("User project limit check error:", err);
+    }
+  }
+
+  return null;
+}
+
+// Log project creation / upload for rate limiting
+async function logUploadEvent(db: FirebaseFirestore.Firestore | null, identifier: string, projectId: string) {
+  if (!db) return;
+  try {
+    await db.collection("upload_logs").add({
+      identifier,
+      projectId,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    console.warn("Failed to log upload event:", err);
+  }
+}
+
 // Save Project to Firestore
 app.post("/api/projects", async (req: Request, res: Response) => {
   try {
     const authUser = await getAuthUser(req);
+    const db = getFirestoreDb();
+    const identifier = authUser?.uid || (req.headers["x-forwarded-for"] as string) || req.ip || "anonymous";
+
     const projectData = req.body as ProjectDataModel;
+    const isNew = !projectData.shareId;
+
+    // Check misuse protection limits
+    const limitError = await checkMisuseProtection(db, identifier, isNew);
+    if (limitError) {
+      res.status(429).json({ error: limitError });
+      return;
+    }
+
     const shareId = projectData.shareId || `dub-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
     const payload: ProjectDataModel = {
       ...projectData,
@@ -209,9 +281,11 @@ app.post("/api/projects", async (req: Request, res: Response) => {
       updatedAt: Date.now(),
     };
 
-    const db = getFirestoreDb();
     if (db) {
       await db.collection("projects").doc(shareId).set(payload);
+      if (isNew) {
+        await logUploadEvent(db, identifier, shareId);
+      }
     }
     res.json({ success: true, shareId });
   } catch (err: unknown) {
@@ -289,6 +363,8 @@ app.post("/api/projects/:id/media", async (req: Request, res: Response) => {
     const projectId = req.params.id;
     const db = getFirestoreDb();
 
+    const identifier = authUser?.uid || (req.headers["x-forwarded-for"] as string) || req.ip || "anonymous";
+
     // Verify project ownership if project document already exists
     if (db) {
       const docRef = db.collection("projects").doc(projectId);
@@ -299,6 +375,13 @@ app.post("/api/projects/:id/media", async (req: Request, res: Response) => {
           res.status(403).json({ error: "Forbidden: You do not have permission to upload media for this dub" });
           return;
         }
+      }
+
+      // Enforce rate limits on media uploads
+      const limitError = await checkMisuseProtection(db, identifier, false);
+      if (limitError) {
+        res.status(429).json({ error: limitError });
+        return;
       }
     }
 

@@ -214,14 +214,19 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Share</span>
           </button>
 
-          {/* Showtime Theater Fullscreen Button */}
+          {/* Showtime Theater Fullscreen Button (Locked if no takes exist) */}
           <button
             id="showtime-btn"
-            onClick={onOpenShowtime}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-orange-500 via-amber-500 to-rose-500 hover:from-orange-600 hover:to-amber-600 text-black shadow-lg shadow-orange-950/60 hover:scale-105 active:scale-95 transition-all cursor-pointer"
-            title="Watch performance in Showtime Theater"
+            onClick={hasTakes ? onOpenShowtime : undefined}
+            disabled={!hasTakes}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              hasTakes
+                ? 'bg-gradient-to-r from-orange-500 via-amber-500 to-rose-500 hover:from-orange-600 hover:to-amber-600 text-black shadow-lg shadow-orange-950/60 hover:scale-105 active:scale-95 cursor-pointer'
+                : 'bg-zinc-900/60 text-zinc-500 border border-zinc-800/80 cursor-not-allowed opacity-60'
+            }`}
+            title={hasTakes ? "Watch performance in Showtime Theater" : "Record at least 1 voice dub line to unlock Showtime Theater!"}
           >
-            <Play className="w-3.5 h-3.5 fill-black" />
+            <Play className={`w-3.5 h-3.5 ${hasTakes ? 'fill-black' : 'fill-zinc-600 text-zinc-600'}`} />
             <span>Showtime!</span>
           </button>
 

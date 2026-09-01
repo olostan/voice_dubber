@@ -21,6 +21,7 @@ interface ShowtimeModalProps {
   onVolumeChange: (vol: number) => void;
   projectTitle: string;
   onOpenShare: () => void;
+  hasTakes?: boolean;
 }
 
 export const ShowtimeModal: React.FC<ShowtimeModalProps> = ({
@@ -39,6 +40,7 @@ export const ShowtimeModal: React.FC<ShowtimeModalProps> = ({
   onVolumeChange,
   projectTitle,
   onOpenShare,
+  hasTakes = true,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoElemRef = useRef<HTMLVideoElement | null>(null);
@@ -209,6 +211,27 @@ export const ShowtimeModal: React.FC<ShowtimeModalProps> = ({
                   "{activeLine.text}"
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Empty State Overlay when no dub takes exist */}
+          {!hasTakes && (
+            <div className="absolute inset-0 bg-black/92 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center gap-4 z-30 animate-in fade-in duration-200">
+              <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-3xl shadow-xl shadow-amber-950/50">
+                🎙️
+              </div>
+              <div className="max-w-md">
+                <h3 className="text-xl font-extrabold text-white">No Dub Takes Recorded Yet</h3>
+                <p className="text-xs sm:text-sm text-zinc-400 mt-1">
+                  Showtime Theater lets you watch and share your finished dub with sound effects. Head back to the Studio to record your vocal lines first!
+                </p>
+              </div>
+              <button
+                onClick={onClose}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 text-black font-black text-xs uppercase tracking-wider hover:from-orange-600 hover:to-amber-600 shadow-lg shadow-orange-950/60 cursor-pointer hover:scale-105 transition-all"
+              >
+                Go to Studio & Record Lines
+              </button>
             </div>
           )}
         </div>
