@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Character, Player, ScriptData, ScriptLine } from '../types';
+import { AudioTake, Character, Player, ScriptData, ScriptLine } from '../types';
 import { Sparkles, Plus, Trash2, Edit3, Wand2, Clock, Check, RefreshCw, Mic, AlertCircle, ChevronRight, Users, UserPlus } from 'lucide-react';
 
 interface ScriptPrompterProps {
@@ -8,6 +8,7 @@ interface ScriptPrompterProps {
   onUpdateCharacters?: (characters: Character[]) => void;
   players?: Player[];
   onUpdatePlayers?: (players: Player[]) => void;
+  audioTakes?: AudioTake[];
   currentTime: number;
   duration: number;
   onUpdateScriptData: (data: ScriptData) => void;
@@ -45,6 +46,7 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
   onUpdateCharacters,
   players = [],
   onUpdatePlayers,
+  audioTakes = [],
   currentTime,
   duration,
   onUpdateScriptData,
@@ -458,7 +460,13 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
             const char = characters.find((c) => c.id === line.speakerId);
             const assignedPlayer = players.find((p) => p.characterId === line.speakerId);
             const isCurrentlyActive = currentTime >= line.startTime && currentTime <= line.endTime;
-            const isPast = currentTime > line.endTime;
+            const hasRecordedTake = audioTakes.some(
+              (t) =>
+                t.lineId === line.id ||
+                (t.characterId === line.speakerId &&
+                  t.startTimeOffset <= line.endTime + 0.25 &&
+                  t.startTimeOffset + t.duration >= line.startTime - 0.25)
+            );
             const isRecordingThisLine = activeRecordingLineId === line.id && isRecording;
             const isNextPending = nextPendingLineId === line.id;
 
@@ -479,8 +487,8 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
                     ? 'border-orange-500 bg-orange-950/40 shadow-lg shadow-orange-950/40 ring-2 ring-orange-500'
                     : isNextPending && !isRecording
                     ? 'border-amber-500/50 bg-zinc-950/90 shadow-md ring-1 ring-amber-500/30'
-                    : isPast
-                    ? 'border-zinc-800/80 bg-zinc-950/50 opacity-80 hover:opacity-100'
+                    : hasRecordedTake
+                    ? 'border-emerald-500/30 bg-zinc-950/80 hover:border-emerald-500/50'
                     : 'border-zinc-800/90 bg-zinc-950/80'
                 }`}
               >
@@ -525,6 +533,12 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
                             👉 Next Up
                           </span>
                         )}
+                        {hasRecordedTake && !isRecordingThisLine && (
+                          <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
+                            <Check className="w-2.5 h-2.5" />
+                            <span>Dubbed</span>
+                          </span>
+                        )}
                       </div>
                     )}
 
@@ -565,7 +579,7 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
                           e.stopPropagation();
                           handleDeleteLine(line.id);
                         }}
-                        className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors"
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors cursor-pointer"
                         title="Delete line"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -578,17 +592,19 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
                             onRecordLine(line);
                           }}
                           disabled={isRecording}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md ${
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md cursor-pointer ${
                             isRecordingThisLine
                               ? 'bg-red-600 text-white animate-pulse'
                               : isNextPending
                               ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-zinc-950 ring-2 ring-amber-400 hover:from-amber-400 hover:to-orange-400'
+                              : hasRecordedTake
+                              ? 'bg-emerald-950/70 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 hover:border-emerald-400'
                               : 'bg-zinc-900 hover:bg-orange-500 text-zinc-200 hover:text-white border border-zinc-700 hover:border-orange-400'
                           }`}
                           title={`Record line for ${line.speakerName}`}
                         >
-                          <Mic className="w-3.5 h-3.5" />
-                          <span>{isPast ? 'Re-record' : 'Record Line'}</span>
+                          {hasRecordedTake ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Mic className="w-3.5 h-3.5" />}
+                          <span>{hasRecordedTake ? 'Re-record' : 'Record Line'}</span>
                         </button>
                       )
                     )}

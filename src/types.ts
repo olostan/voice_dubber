@@ -45,6 +45,7 @@ export interface AudioTake {
   id: string;
   playerId: string;
   characterId: string;
+  lineId?: string;
   audioBlob: Blob;
   audioUrl: string;
   audioBuffer?: AudioBuffer;

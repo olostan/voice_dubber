@@ -11,6 +11,7 @@ interface SavedTakeData {
   id: string;
   playerId: string;
   characterId: string;
+  lineId?: string;
   audioBlob: Blob;
   duration: number;
   startTimeOffset: number;
@@ -130,6 +131,7 @@ export async function saveDubSession(
       id: take.id,
       playerId: take.playerId,
       characterId: take.characterId,
+      lineId: take.lineId,
       audioBlob: take.audioBlob,
       duration: take.duration,
       startTimeOffset: take.startTimeOffset,
@@ -270,6 +272,7 @@ export async function loadDubSession(projectId?: string | null): Promise<{
           id: t.id,
           playerId: t.playerId,
           characterId: t.characterId,
+          lineId: t.lineId,
           audioBlob: t.audioBlob,
           audioUrl,
           audioBuffer,

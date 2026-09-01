@@ -972,7 +972,7 @@ export default function App() {
       if (take.muted) return;
 
       // When actively recording / re-recording a line, DO NOT play the old take being replaced!
-      if (targetRecordingLineRef.current) {
+      if (isRecordingRef.current && targetRecordingLineRef.current) {
         const lineStart = targetRecordingLineRef.current.startTime;
         const lineEnd = targetRecordingLineRef.current.endTime;
         const takeStart = take.startTimeOffset;
@@ -1428,6 +1428,7 @@ export default function App() {
         id: `take-${Date.now()}`,
         playerId: assignedPlayer.id,
         characterId: targetChar.id,
+        lineId: completedTargetLine?.id,
         audioBlob: blob,
         audioUrl: url,
         audioBuffer,
@@ -1442,10 +1443,37 @@ export default function App() {
         recordedAt: Date.now(),
       };
 
-      // Replace existing take for this character or append
+      // Surgical replacement: Replace ONLY the take corresponding to this specific line
+      // or overlapping the newly recorded interval, preserving ALL other takes for this character!
       setAudioTakes((prev) => {
-        const filtered = prev.filter((t) => t.characterId !== targetChar.id);
-        return [...filtered, newTake];
+        let remaining: AudioTake[];
+        if (completedTargetLine) {
+          const lStart = completedTargetLine.startTime;
+          const lEnd = completedTargetLine.endTime;
+          remaining = prev.filter((t) => {
+            // Keep takes belonging to different characters
+            if (t.characterId !== targetChar.id) return true;
+            // Remove if explicitly linked to the line being re-recorded
+            if (t.lineId && t.lineId === completedTargetLine.id) return false;
+            // Remove if this take overlaps the line's time range
+            const tStart = t.startTimeOffset;
+            const tEnd = tStart + t.duration;
+            const overlaps = tStart < (lEnd + 0.25) && tEnd > (lStart - 0.25);
+            return !overlaps;
+          });
+        } else {
+          // Freestyle recording: remove only takes overlapping this specific recorded time window
+          const recStart = takeStartOffset;
+          const recEnd = recStart + recDuration;
+          remaining = prev.filter((t) => {
+            if (t.characterId !== targetChar.id) return true;
+            const tStart = t.startTimeOffset;
+            const tEnd = tStart + t.duration;
+            const overlaps = tStart < (recEnd + 0.15) && tEnd > (recStart - 0.15);
+            return !overlaps;
+          });
+        }
+        return [...remaining, newTake];
       });
       setHasUnsavedChanges(true);
 
@@ -1845,6 +1873,7 @@ export default function App() {
                     setPlayers(newPlayers);
                     setHasUnsavedChanges(true);
                   }}
+                  audioTakes={audioTakes}
                   currentTime={currentTime}
                   duration={duration}
                   onUpdateScriptData={(newScript) => {
