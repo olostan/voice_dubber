@@ -49,7 +49,7 @@ export const MyProjectsModal: React.FC<MyProjectsModalProps> = ({
   if (!isOpen) return null;
 
   const handleCopyShareLink = (shareId: string) => {
-    const url = `${window.location.origin}/?project=${shareId}`;
+    const url = `${window.location.origin}/view#${shareId}`;
     navigator.clipboard.writeText(url);
     setCopiedId(shareId);
     setTimeout(() => setCopiedId(null), 2500);

@@ -52,15 +52,19 @@ import { CloudProjectPayload, saveProjectToCloud, loadProjectFromCloud, uploadPr
 export default function App() {
   // Navigation View: 'home' landing page or 'studio' working DAW workspace
   const [currentView, setCurrentView] = useState<'home' | 'studio'>(() => {
+    const pathname = window.location.pathname;
     const params = new URLSearchParams(window.location.search);
     const hash = window.location.hash.replace(/^#/, '');
-    const isViewRoute = window.location.pathname.startsWith('/view');
-    return params.get('project') || hash || isViewRoute ? 'studio' : 'home';
+    const isStudio = pathname.startsWith('/studio');
+    const isView = pathname.startsWith('/view');
+    return isStudio || isView || params.get('project') || hash ? 'studio' : 'home';
   });
 
   // Modals
   const [isAiJudgeOpen, setIsAiJudgeOpen] = useState(false);
-  const [isShowtimeOpen, setIsShowtimeOpen] = useState(false);
+  const [isShowtimeOpen, setIsShowtimeOpen] = useState<boolean>(() => {
+    return window.location.pathname.startsWith('/view');
+  });
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
   const [privacyInitialTab, setPrivacyInitialTab] = useState<'privacy' | 'terms' | 'ai' | 'copyright'>('privacy');
@@ -181,6 +185,48 @@ export default function App() {
       setUser(currentUser);
     });
     return () => unsubscribe();
+  }, []);
+
+  // Navigation helpers that sync browser history and URL routes
+  const navigateToStudio = useCallback((projectId?: string | null) => {
+    const id = projectId !== undefined ? projectId : currentCloudProjectId;
+    const targetUrl = id ? `/studio#${id}` : '/studio';
+    window.history.pushState({ view: 'studio', projectId: id }, '', targetUrl);
+    setCurrentView('studio');
+    setIsShowtimeOpen(false);
+  }, [currentCloudProjectId]);
+
+  const navigateToView = useCallback((projectId?: string | null) => {
+    const id = projectId !== undefined ? projectId : currentCloudProjectId;
+    const targetUrl = id ? `/view#${id}` : '/view';
+    window.history.pushState({ view: 'view', projectId: id }, '', targetUrl);
+    setCurrentView('studio');
+    setIsShowtimeOpen(true);
+  }, [currentCloudProjectId]);
+
+  const navigateToHome = useCallback(() => {
+    window.history.pushState({ view: 'home' }, '', '/');
+    setCurrentView('home');
+    setIsShowtimeOpen(false);
+  }, []);
+
+  // Listen for browser Back / Forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      const pathname = window.location.pathname;
+      if (pathname.startsWith('/view')) {
+        setIsShowtimeOpen(true);
+        setCurrentView('studio');
+      } else if (pathname.startsWith('/studio')) {
+        setIsShowtimeOpen(false);
+        setCurrentView('studio');
+      } else if (pathname === '/' || pathname === '') {
+        setIsShowtimeOpen(false);
+        setCurrentView('home');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   // 2. Restore Working Dub Session from IndexedDB or URL Share Parameter on mount
@@ -411,12 +457,9 @@ export default function App() {
         }
       }
 
-      // Update browser URL query params with the project ID
-      const newUrl = new URL(window.location.href);
-      newUrl.pathname = '/view';
-      newUrl.hash = shareId;
-      newUrl.searchParams.delete('project');
-      window.history.pushState({ projectId: shareId }, '', newUrl.toString());
+      // Update browser URL based on whether user is in Showtime or Studio
+      const targetPath = isShowtimeOpen ? `/view#${shareId}` : `/studio#${shareId}`;
+      window.history.pushState({ projectId: shareId }, '', targetPath);
 
       setCurrentCloudProjectId(shareId);
       setHasUnsavedChanges(false);
@@ -468,9 +511,9 @@ export default function App() {
 
     const pId = project.id || project.shareId || null;
     if (pId) {
-      const newUrl = new URL(window.location.href);
-      newUrl.searchParams.set('project', pId);
-      window.history.pushState({ projectId: pId }, '', newUrl.toString());
+      const isView = window.location.pathname.startsWith('/view') || isShowtimeOpen;
+      const targetPath = isView ? `/view#${pId}` : `/studio#${pId}`;
+      window.history.pushState({ projectId: pId }, '', targetPath);
       setCurrentCloudProjectId(pId);
     }
 
@@ -1602,8 +1645,8 @@ export default function App() {
       {/* Top Navigation Header */}
       <Header
         currentView={currentView}
-        onGoHome={() => setCurrentView('home')}
-        onOpenStudio={() => setCurrentView('studio')}
+        onGoHome={navigateToHome}
+        onOpenStudio={() => navigateToStudio()}
         projectTitle={scriptData.scriptTitle}
         onRenameProject={(newTitle) => {
           setScriptData((prev) => ({ ...prev, scriptTitle: newTitle }));
@@ -1619,7 +1662,7 @@ export default function App() {
             setTimeout(() => setNotificationToast(null), 4000);
             return;
           }
-          setIsShowtimeOpen(true);
+          navigateToView();
         }}
         onOpenShare={() => setIsShareOpen(true)}
         onOpenPrivacy={(tab) => {
@@ -1658,9 +1701,7 @@ export default function App() {
           });
           setCurrentCloudProjectId(null);
           setHasUnsavedChanges(false);
-          const newUrl = new URL(window.location.href);
-          newUrl.searchParams.delete('project');
-          window.history.pushState({}, '', newUrl.toString());
+          navigateToStudio(null);
           setNotificationToast({
             message: '🗑️ Cleared working project. Ready for a new video.',
             type: 'info',
@@ -1672,13 +1713,13 @@ export default function App() {
       {/* Main View: Animated Home Page OR Studio DAW Workspace */}
       {currentView === 'home' ? (
         <HomePage
-          onLaunchStudio={() => setCurrentView('studio')}
+          onLaunchStudio={() => navigateToStudio()}
           onCaptureTab={() => {
-            setCurrentView('studio');
+            navigateToStudio();
             handleCaptureTab();
           }}
           onUploadVideo={(e) => {
-            setCurrentView('studio');
+            navigateToStudio();
             handleUploadVideo(e);
           }}
           onOpenMyProjects={() => setIsMyProjectsOpen(true)}
@@ -1917,7 +1958,7 @@ export default function App() {
       {/* Showtime Theater Fullscreen Modal */}
       <ShowtimeModal
         isOpen={isShowtimeOpen}
-        onClose={() => setIsShowtimeOpen(false)}
+        onClose={() => navigateToStudio()}
         videoSource={videoSource}
         presetClip={presetClip}
         duration={duration}

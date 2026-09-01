@@ -20,59 +20,58 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   onSaveToCloud,
   isSavingToCloud,
 }) => {
-  const [isCopied, setIsCopied] = useState(false);
+  const [isCopiedView, setIsCopiedView] = useState(false);
+  const [isCopiedStudio, setIsCopiedStudio] = useState(false);
 
   if (!isOpen) return null;
 
   const origin = window.location.origin;
   const shareId = projectId;
-  // Formats supported: /view#<id> and /?project=<id>
-  const shareUrl = shareId ? `${origin}/view#${shareId}` : '';
+  const showtimeUrl = shareId ? `${origin}/view#${shareId}` : '';
+  const studioUrl = shareId ? `${origin}/studio#${shareId}` : '';
 
-  const handleCopy = async () => {
-    if (!shareUrl) return;
+  const handleCopy = async (url: string, type: 'view' | 'studio') => {
+    if (!url) return;
     try {
-      await navigator.clipboard.writeText(shareUrl);
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 3000);
+      await navigator.clipboard.writeText(url);
+      if (type === 'view') {
+        setIsCopiedView(true);
+        setTimeout(() => setIsCopiedView(false), 3000);
+      } else {
+        setIsCopiedStudio(true);
+        setTimeout(() => setIsCopiedStudio(false), 3000);
+      }
     } catch {
       // Fallback
-      const input = document.getElementById('share-link-input') as HTMLInputElement;
-      if (input) {
-        input.select();
-        document.execCommand('copy');
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 3000);
-      }
     }
   };
 
   const handleNativeShare = async () => {
-    if (!shareUrl) return;
+    if (!showtimeUrl) return;
     if (navigator.share) {
       try {
         await navigator.share({
           title: `Fun Voice Dubber: ${projectTitle}`,
           text: `Check out our voice dub for "${projectTitle}" on Fun Voice Dubber! 🎙️`,
-          url: shareUrl,
+          url: showtimeUrl,
         });
       } catch {
         // User cancelled or unsupported
       }
     } else {
-      handleCopy();
+      handleCopy(showtimeUrl, 'view');
     }
   };
 
-  const tweetUrl = shareUrl
+  const tweetUrl = showtimeUrl
     ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-        `Check out our voice dub of "${projectTitle}" on Fun Voice Dubber! 🎙️😂 ${shareUrl}`
+        `Check out our voice dub of "${projectTitle}" on Fun Voice Dubber! 🎙️😂 ${showtimeUrl}`
       )}`
     : '#';
 
-  const whatsappUrl = shareUrl
+  const whatsappUrl = showtimeUrl
     ? `https://api.whatsapp.com/send?text=${encodeURIComponent(
-        `Check out our hilarious dub for "${projectTitle}" on Fun Voice Dubber! 🎙️ ${shareUrl}`
+        `Check out our hilarious dub for "${projectTitle}" on Fun Voice Dubber! 🎙️ ${showtimeUrl}`
       )}`
     : '#';
 
@@ -122,7 +121,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
             /* Upload to Cloud Prompt */
             <div className="p-5 rounded-2xl bg-gradient-to-b from-orange-500/10 to-amber-500/5 border border-orange-500/20 text-center space-y-3">
               <p className="text-xs text-zinc-300 leading-relaxed">
-                To generate a public share link that streams your video & audio takes in Showtime Theater, upload this project to Cloud Storage.
+                To generate share links for Showtime Theater & the Studio Editor, upload this project to Cloud Storage.
               </p>
               <button
                 onClick={onSaveToCloud}
@@ -130,76 +129,105 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                 className="w-full py-3.5 px-5 rounded-xl bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 hover:from-orange-600 hover:to-amber-600 text-black font-extrabold text-xs tracking-wide flex items-center justify-center gap-2 shadow-xl shadow-orange-950/50 hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer"
               >
                 <CloudUpload className="w-4 h-4" />
-                <span>{isSavingToCloud ? 'Uploading to Cloud...' : 'Upload & Generate Share Link'}</span>
+                <span>{isSavingToCloud ? 'Uploading to Cloud...' : 'Upload & Generate Share Links'}</span>
               </button>
             </div>
           ) : (
-            /* Copyable Share Link Input */
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-300">Public Dub Share Link</label>
-              <div className="flex items-center gap-2">
-                <input
-                  id="share-link-input"
-                  type="text"
-                  readOnly
-                  value={shareUrl}
-                  className="flex-1 bg-zinc-950 border border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-orange-500 selection:bg-orange-500 selection:text-white"
-                />
+            <div className="space-y-4">
+              {/* 1. Showtime Theater Link (Audience View) */}
+              <div className="space-y-1.5 p-3.5 rounded-2xl bg-zinc-950/80 border border-amber-500/30">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-black text-amber-400">
+                    <Play className="w-3.5 h-3.5 fill-amber-400" />
+                    <span>🍿 Showtime Theater Link (Watch Only)</span>
+                  </div>
+                  <span className="text-[10px] text-zinc-400">Cinema & Reactions</span>
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    id="share-view-link-input"
+                    type="text"
+                    readOnly
+                    value={showtimeUrl}
+                    className="flex-1 bg-zinc-900 border border-zinc-700/80 rounded-xl px-3 py-2 text-xs text-zinc-200 font-mono focus:outline-none focus:border-amber-500"
+                  />
+                  <button
+                    onClick={() => handleCopy(showtimeUrl, 'view')}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer shadow-md shrink-0 ${
+                      isCopiedView
+                        ? 'bg-emerald-500 text-black'
+                        : 'bg-gradient-to-r from-amber-500 to-orange-500 text-black hover:from-amber-400 hover:to-orange-400'
+                    }`}
+                  >
+                    {isCopiedView ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{isCopiedView ? 'Copied!' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Studio Editor Link (Collaborative Studio) */}
+              <div className="space-y-1.5 p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-300">
+                    <Globe className="w-3.5 h-3.5 text-orange-400" />
+                    <span>🎙️ Studio Editor Link (Edit & Record)</span>
+                  </div>
+                  <span className="text-[10px] text-zinc-400">Collaborate & Remix</span>
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    id="share-studio-link-input"
+                    type="text"
+                    readOnly
+                    value={studioUrl}
+                    className="flex-1 bg-zinc-900 border border-zinc-700/80 rounded-xl px-3 py-2 text-xs text-zinc-200 font-mono focus:outline-none focus:border-orange-500"
+                  />
+                  <button
+                    onClick={() => handleCopy(studioUrl, 'studio')}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shrink-0 ${
+                      isCopiedStudio
+                        ? 'bg-emerald-500 text-black'
+                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700'
+                    }`}
+                  >
+                    {isCopiedStudio ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{isCopiedStudio ? 'Copied!' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Share Buttons */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
                 <button
-                  onClick={handleCopy}
-                  className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer shadow-md ${
-                    isCopied
-                      ? 'bg-emerald-500 text-black'
-                      : 'bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-black'
-                  }`}
+                  onClick={handleNativeShare}
+                  className="flex items-center justify-center gap-2 p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-zinc-800 text-xs font-bold transition-colors cursor-pointer"
                 >
-                  {isCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  <span>{isCopied ? 'Copied!' : 'Copy'}</span>
+                  <Share2 className="w-4 h-4 text-amber-400" />
+                  <span>Web Share</span>
                 </button>
+
+                <a
+                  href={tweetUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-center gap-2 p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-zinc-800 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <Twitter className="w-4 h-4 text-sky-400" />
+                  <span>Post on X</span>
+                </a>
+
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-center gap-2 p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-zinc-800 text-xs font-bold transition-colors col-span-2 sm:col-span-1 cursor-pointer"
+                >
+                  <MessageSquare className="w-4 h-4 text-emerald-400" />
+                  <span>WhatsApp</span>
+                </a>
               </div>
             </div>
           )}
-
-          {/* Quick Share Buttons */}
-          {shareId && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
-              <button
-                onClick={handleNativeShare}
-                className="flex items-center justify-center gap-2 p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-zinc-800 text-xs font-bold transition-colors cursor-pointer"
-              >
-                <Share2 className="w-4 h-4 text-amber-400" />
-                <span>Web Share</span>
-              </button>
-
-              <a
-                href={tweetUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-center gap-2 p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-zinc-800 text-xs font-bold transition-colors cursor-pointer"
-              >
-                <Twitter className="w-4 h-4 text-sky-400" />
-                <span>Post on X</span>
-              </a>
-
-              <a
-                href={whatsappUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-center gap-2 p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-zinc-800 text-xs font-bold transition-colors col-span-2 sm:col-span-1 cursor-pointer"
-              >
-                <MessageSquare className="w-4 h-4 text-emerald-400" />
-                <span>WhatsApp</span>
-              </a>
-            </div>
-          )}
-
-          {/* Footer note */}
-          <div className="p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-[11px] text-zinc-400 flex items-center gap-2">
-            <Globe className="w-4 h-4 text-orange-400 shrink-0" />
-            <span>
-              Anyone with this link can watch your dubbed performance in full-screen Showtime Theater.
-            </span>
-          </div>
         </div>
       </div>
     </div>
