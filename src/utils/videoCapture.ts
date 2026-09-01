@@ -132,13 +132,15 @@ export class MicTakeRecorder {
       const dataArray = new Uint8Array(this.analyserNode.frequencyBinCount);
       const updateMeter = () => {
         if (!this.analyserNode) return;
-        this.analyserNode.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
+        if (!document.hidden) {
+          this.analyserNode.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const avg = sum / dataArray.length / 255;
+          onVuUpdate(avg);
         }
-        const avg = sum / dataArray.length / 255;
-        onVuUpdate(avg);
         this.animFrameId = requestAnimationFrame(updateMeter);
       };
       updateMeter();

@@ -84,8 +84,21 @@ export const HomePage: React.FC<HomePageProps> = ({
     }));
 
     let phase = 0;
+    let isVisible = !document.hidden;
+
+    const handleVisibilityChange = () => {
+      isVisible = !document.hidden;
+      if (isVisible) {
+        cancelAnimationFrame(animId);
+        animId = requestAnimationFrame(render);
+      } else {
+        cancelAnimationFrame(animId);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     const render = () => {
+      if (!isVisible) return;
       phase += 0.02;
       ctx.fillStyle = '#0a0a0d';
       ctx.fillRect(0, 0, width, height);
@@ -159,11 +172,14 @@ export const HomePage: React.FC<HomePageProps> = ({
       animId = requestAnimationFrame(render);
     };
 
-    render();
+    if (isVisible) {
+      render();
+    }
 
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', handleResize);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 

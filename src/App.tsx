@@ -1210,6 +1210,17 @@ export default function App() {
     };
   }, [isPlaying, duration, stopPlayback, videoSource]);
 
+  // Auto-pause playback when tab is inactive to preserve CPU & power
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && isPlaying && !isRecording) {
+        stopPlayback();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isPlaying, isRecording, stopPlayback]);
+
   // Start Recording Dub Take for a Specific Dialogue Line
   const handleRecordSpecificLine = async (line: ScriptLine) => {
     stopPlayback();
