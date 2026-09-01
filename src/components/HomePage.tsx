@@ -130,26 +130,90 @@ export const HomePage: React.FC<HomePageProps> = ({
       ctx.fillStyle = grad2;
       ctx.fillRect(0, 0, width, height);
 
-      // 2. Neon Soundwave Oscillations
+      // 2. High-Fidelity Neon Sinusoidal Harmonic Soundwaves
       const waves = [
-        { freq: 0.003, amp: 45, color: 'rgba(249, 115, 22, 0.25)', speed: 1.2 },
-        { freq: 0.004, amp: 30, color: 'rgba(245, 158, 11, 0.2)', speed: 1.8 },
-        { freq: 0.002, amp: 60, color: 'rgba(236, 72, 153, 0.15)', speed: 0.8 },
+        // Primary Hero Wave Cluster (Centred around hero section ~38-45% viewport height)
+        {
+          baseY: height * 0.38,
+          freq: 0.0022,
+          amp: 48,
+          harmonicFreq: 0.0007,
+          harmonicAmp: 18,
+          color: 'rgba(249, 115, 22, 0.45)',
+          glowColor: 'rgba(249, 115, 22, 0.6)',
+          lineWidth: 2.8,
+          speed: 1.1,
+          phaseOffset: 0,
+        },
+        {
+          baseY: height * 0.42,
+          freq: 0.0028,
+          amp: 36,
+          harmonicFreq: 0.0009,
+          harmonicAmp: 22,
+          color: 'rgba(245, 158, 11, 0.40)',
+          glowColor: 'rgba(245, 158, 11, 0.5)',
+          lineWidth: 2.2,
+          speed: 1.5,
+          phaseOffset: Math.PI * 0.4,
+        },
+        {
+          baseY: height * 0.35,
+          freq: 0.0018,
+          amp: 55,
+          harmonicFreq: 0.0005,
+          harmonicAmp: 25,
+          color: 'rgba(236, 72, 153, 0.35)',
+          glowColor: 'rgba(236, 72, 153, 0.45)',
+          lineWidth: 2.5,
+          speed: 0.85,
+          phaseOffset: Math.PI * 0.8,
+        },
+        // Secondary Ambient Harmonics (Flowing through mid-lower screen ~58-65% viewport height)
+        {
+          baseY: height * 0.62,
+          freq: 0.0025,
+          amp: 42,
+          harmonicFreq: 0.0008,
+          harmonicAmp: 20,
+          color: 'rgba(6, 182, 212, 0.35)',
+          glowColor: 'rgba(6, 182, 212, 0.5)',
+          lineWidth: 2.0,
+          speed: 1.2,
+          phaseOffset: Math.PI * 1.2,
+        },
+        {
+          baseY: height * 0.68,
+          freq: 0.0032,
+          amp: 32,
+          harmonicFreq: 0.0011,
+          harmonicAmp: 16,
+          color: 'rgba(168, 85, 247, 0.30)',
+          glowColor: 'rgba(168, 85, 247, 0.4)',
+          lineWidth: 2.2,
+          speed: 1.6,
+          phaseOffset: Math.PI * 1.6,
+        },
       ];
 
       waves.forEach((w) => {
+        ctx.save();
         ctx.strokeStyle = w.color;
-        ctx.lineWidth = 2;
+        ctx.shadowColor = w.glowColor;
+        ctx.shadowBlur = 10;
+        ctx.lineWidth = w.lineWidth;
         ctx.beginPath();
-        for (let x = 0; x < width; x += 10) {
-          const y =
-            height * 0.5 +
-            Math.sin(x * w.freq + phase * w.speed) * w.amp +
-            Math.cos(x * 0.001 + phase * 0.5) * 20;
+
+        for (let x = 0; x <= width; x += 8) {
+          const mainSine = Math.sin(x * w.freq + phase * w.speed + w.phaseOffset) * w.amp;
+          const harmonicSine = Math.cos(x * w.harmonicFreq + phase * (w.speed * 0.4) + w.phaseOffset) * w.harmonicAmp;
+          const y = w.baseY + mainSine + harmonicSine;
+
           if (x === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         }
         ctx.stroke();
+        ctx.restore();
       });
 
       // 3. Floating Sound Particles
@@ -185,10 +249,10 @@ export const HomePage: React.FC<HomePageProps> = ({
 
   return (
     <div className="relative min-h-screen bg-[#0A0A0D] text-zinc-100 flex flex-col font-['Plus_Jakarta_Sans'] overflow-x-hidden">
-      {/* Dynamic Animated Canvas Background */}
+      {/* Dynamic Animated Canvas Background (Fixed in Viewport) */}
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full pointer-events-none z-0"
+        className="fixed inset-0 w-full h-full pointer-events-none z-0"
       />
 
       <div className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-16 flex flex-col items-center gap-16 md:gap-24">
