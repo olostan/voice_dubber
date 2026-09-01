@@ -378,7 +378,44 @@ export default function App() {
       if (matchingPreset) {
         setPresetClip(matchingPreset);
         setVideoSource(null);
+      } else {
+        const fallbackPreset = PRESET_CLIPS.find((p) => p.genre.toLowerCase() === project.genre?.toLowerCase()) || PRESET_CLIPS[0];
+        setPresetClip({
+          ...fallbackPreset,
+          id: project.presetClipId,
+          title: project.title || fallbackPreset.title,
+          description: project.synopsis || fallbackPreset.description,
+          duration: project.duration || 15,
+          defaultCharacters: project.characters || fallbackPreset.defaultCharacters,
+          defaultScript: (project.lines || []).map((l, i) => ({
+            speakerIndex: i % (project.characters?.length || 1),
+            startTime: l.startTime,
+            endTime: l.endTime,
+            text: l.text,
+            cue: l.cue || '',
+          })),
+        });
+        setVideoSource(null);
       }
+    } else {
+      // If project was captured from tab/uploaded without a preset ID, generate an interactive canvas scene
+      const fallbackPreset = PRESET_CLIPS.find((p) => p.genre.toLowerCase() === project.genre?.toLowerCase()) || PRESET_CLIPS[0];
+      setPresetClip({
+        ...fallbackPreset,
+        id: `custom-${pId || Date.now()}`,
+        title: project.title || fallbackPreset.title,
+        description: project.synopsis || fallbackPreset.description,
+        duration: project.duration || 15,
+        defaultCharacters: project.characters || fallbackPreset.defaultCharacters,
+        defaultScript: (project.lines || []).map((l, i) => ({
+          speakerIndex: i % (project.characters?.length || 1),
+          startTime: l.startTime,
+          endTime: l.endTime,
+          text: l.text,
+          cue: l.cue || '',
+        })),
+      });
+      setVideoSource(null);
     }
     setDuration(project.duration || 15);
     setCurrentTime(0);
@@ -400,7 +437,7 @@ export default function App() {
     setJudgeResult(null);
     setHasUnsavedChanges(false);
     setNotificationToast({
-      message: `📂 Loaded cloud project "${project.title}". URL updated!`,
+      message: `📂 Loaded cloud project "${project.title}". Ready for dubbing!`,
       type: 'success',
     });
     setTimeout(() => setNotificationToast(null), 5000);
@@ -1459,7 +1496,7 @@ export default function App() {
         )}
 
         {/* Main Studio View: Welcome Screen OR Active Workspace */}
-        {!videoSource && !presetClip ? (
+        {!videoSource && !presetClip && scriptData.lines.length === 0 && characters.length === 0 ? (
           <WelcomeCapturePrompt
             onCaptureTab={handleCaptureTab}
             onUploadVideo={handleUploadVideo}
