@@ -8,8 +8,14 @@ service cloud.firestore {
       allow read: if true;
       allow create: if request.resource.data.keys().hasAll(['title', 'createdAt', 'characters', 'lines'])
                     && request.resource.data.title is string
-                    && request.resource.data.title.size() <= 200;
-      allow update, delete: if request.auth != null && (request.auth.uid == resource.data.authorId || resource.data.authorId == null);
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.title.size() <= 200
+                    && request.resource.data.characters is list
+                    && request.resource.data.lines is list;
+      allow update: if request.auth != null 
+                    && (request.auth.uid == resource.data.authorId || resource.data.authorId == null)
+                    && (!('title' in request.resource.data) || (request.resource.data.title is string && request.resource.data.title.size() <= 200));
+      allow delete: if request.auth != null && request.auth.uid == resource.data.authorId;
     }
 
     // Community Hall of Fame Dubs & Scores
@@ -18,13 +24,15 @@ service cloud.firestore {
       allow create: if request.resource.data.keys().hasAll(['scriptTitle', 'score', 'createdAt'])
                     && request.resource.data.score is number
                     && request.resource.data.score >= 0
-                    && request.resource.data.score <= 100;
+                    && request.resource.data.score <= 100
+                    && (!('authorId' in request.resource.data) || request.auth == null || request.resource.data.authorId == request.auth.uid);
       allow update, delete: if request.auth != null && request.auth.uid == resource.data.authorId;
     }
 
-    // User preferences & saved takes
+    // User profiles, preferences & cloud takes
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
+
