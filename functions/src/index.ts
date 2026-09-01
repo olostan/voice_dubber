@@ -1,29 +1,40 @@
 import { onRequest } from "firebase-functions/v2/https";
-import * as admin from "firebase-admin";
+import { initializeApp, getApps } from "firebase-admin/app";
+import { getFirestore, Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
+import { getAuth, DecodedIdToken } from "firebase-admin/auth";
 import express, { Request, Response } from "express";
-import { GoogleGenAI, Type } from "@google/genai";
 
 // Initialize Firebase Admin SDK (Google Cloud Application Default Credentials automatically attached)
-if (admin.apps.length === 0) {
-  admin.initializeApp();
+if (getApps().length === 0) {
+  initializeApp();
 }
 
 const app = express();
 app.use(express.json({ limit: "25mb" }));
 
-function getFirestoreDb(): FirebaseFirestore.Firestore | null {
+// Lazy loader for Google GenAI SDK to ensure zero-lag instant container startup
+let genaiModule: typeof import("@google/genai") | null = null;
+async function getGeminiSdk() {
+  if (!genaiModule) {
+    genaiModule = await import("@google/genai");
+  }
+  return genaiModule;
+}
+
+function getFirestoreDb(): Firestore | null {
   try {
-    return admin.firestore();
+    return getFirestore();
   } catch {
     return null;
   }
 }
 
-function getGeminiClient(): GoogleGenAI | null {
+async function getGeminiClient(): Promise<import("@google/genai").GoogleGenAI | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return null;
   }
+  const { GoogleGenAI } = await getGeminiSdk();
   return new GoogleGenAI({
     apiKey,
     httpOptions: {
@@ -116,7 +127,7 @@ async function callGeminiWithRetry<T>(fn: () => Promise<T>, maxRetries = 2, dela
 }
 
 // Helper to extract and verify Firebase Auth ID Token from request
-async function getAuthUser(req: Request): Promise<admin.auth.DecodedIdToken | null> {
+async function getAuthUser(req: Request): Promise<DecodedIdToken | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return null;
@@ -124,7 +135,7 @@ async function getAuthUser(req: Request): Promise<admin.auth.DecodedIdToken | nu
   const token = authHeader.split("Bearer ")[1]?.trim();
   if (!token) return null;
   try {
-    return await admin.auth().verifyIdToken(token);
+    return await getAuth().verifyIdToken(token);
   } catch {
     return null;
   }
@@ -157,7 +168,7 @@ app.get("/api/user/projects", async (req: Request, res: Response) => {
         .where("authorId", "==", userId)
         .get();
 
-      const items = snapshot.docs.map((doc) => ({
+      const items = snapshot.docs.map((doc: QueryDocumentSnapshot) => ({
         id: doc.id,
         ...doc.data(),
       }));
@@ -313,7 +324,7 @@ app.get("/api/community-dubs", async (req: Request, res: Response) => {
         .limit(limitCount)
         .get();
 
-      const items = snapshot.docs.map((doc) => ({
+      const items = snapshot.docs.map((doc: QueryDocumentSnapshot) => ({
         id: doc.id,
         ...doc.data(),
       }));
@@ -336,7 +347,7 @@ app.post("/api/gemini/generate-script", async (req: Request, res: Response) => {
       duration?: number;
       promptHint?: string;
     };
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
 
     if (!ai) {
       res.json({
@@ -347,6 +358,8 @@ app.post("/api/gemini/generate-script", async (req: Request, res: Response) => {
       });
       return;
     }
+
+    const { Type } = await getGeminiSdk();
 
     const prompt = `You are an expert Hollywood comedy director and dubbing scriptwriter.
 Generate an energetic dubbing script for a scene lasting exactly ${duration} seconds.
@@ -402,7 +415,7 @@ Create realistic line durations and acting cues.`;
 app.post("/api/gemini/suggest-characters", async (req: Request, res: Response) => {
   try {
     const { sceneTitle, genre } = req.body as { sceneTitle?: string; genre?: string };
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
 
     if (!ai) {
       res.json({
@@ -413,6 +426,8 @@ app.post("/api/gemini/suggest-characters", async (req: Request, res: Response) =
       });
       return;
     }
+
+    const { Type } = await getGeminiSdk();
 
     const response = await callGeminiWithRetry(async () => {
       return await ai.models.generateContent({
@@ -459,7 +474,7 @@ app.post("/api/gemini/ai-judge", async (req: Request, res: Response) => {
       takesSummary?: unknown;
       judgePersona?: string;
     };
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
 
     if (!ai) {
       res.json({
@@ -480,6 +495,8 @@ app.post("/api/gemini/ai-judge", async (req: Request, res: Response) => {
       });
       return;
     }
+
+    const { Type } = await getGeminiSdk();
 
     const response = await callGeminiWithRetry(async () => {
       return await ai.models.generateContent({
@@ -534,7 +551,7 @@ app.post("/api/gemini/transcribe-and-diarize", async (req: Request, res: Respons
       clipTitle?: string;
       vadHints?: Array<{ start: number; end: number }>;
     };
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
 
     if (!ai || !base64Audio) {
       res.json({
@@ -551,6 +568,8 @@ app.post("/api/gemini/transcribe-and-diarize", async (req: Request, res: Respons
       });
       return;
     }
+
+    const { Type } = await getGeminiSdk();
 
     const prompt = `You are an expert audio transcriptionist and dialogue diarizer.
 Audio duration: ${duration}s.
