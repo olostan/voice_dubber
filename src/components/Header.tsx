@@ -28,7 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-lg text-zinc-100 font-['Outfit'] tracking-tight">
-                  The Choice <span className="text-orange-400">Voicer</span>
+                  Voice <span className="text-orange-400">Dubber</span>
                 </span>
                 <span className="text-[10px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 border border-orange-500/30 px-2 py-0.5 rounded-full">
                   Dub Studio

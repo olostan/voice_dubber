@@ -1,6 +1,6 @@
-# The Choice Voicer - Video Dubbing Game 🎙️🎭
+# Voice Dubber - Video Dubbing Game 🎙️🎭
 
-**The Choice Voicer** is a collaborative, multiplayer video voiceover and dubbing party game built with React, TypeScript, Tailwind CSS, Express, and Google Gemini AI.
+**Voice Dubber** is a collaborative, multiplayer video voiceover and dubbing party game built with React, TypeScript, Tailwind CSS, Express, and Google Gemini AI.
 
 Capture any browser tab or screen with audio (YouTube, cartoons, memes, gameplay), record multi-person voiceover tracks with real-time DSP voice effects (Villain, Chipmunk, Robot, Megaphone, Radio, Reverb), generate comedic AI scripts and speaker diarization, drop live sound effects from a soundboard, and get evaluated by an AI Comedy Judge!
 
@@ -49,7 +49,7 @@ Capture any browser tab or screen with audio (YouTube, cartoons, memes, gameplay
 1. **Clone or Download the Project**:
    ```bash
    git clone <repository-url>
-   cd choice-voicer
+   cd voice-dubber
    ```
 
 2. **Install Dependencies**:

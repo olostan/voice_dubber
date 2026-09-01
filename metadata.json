@@ -1,5 +1,5 @@
 {
-  "name": "The Choice Voicer - Video Dubbing Game",
+  "name": "Voice Dubber",
   "description": "Capture browser tabs or video clips, record multi-person voiceover tracks with real-time audio FX, AI scripts, voice activity detection, and party battles.",
   "requestFramePermissions": ["microphone", "display-capture"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

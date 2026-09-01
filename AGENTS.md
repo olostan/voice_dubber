@@ -1,6 +1,6 @@
 # AGENTS.md - Architecture, Internal Mechanics & Agent Guidelines
 
-This document provides a comprehensive technical overview of **The Choice Voicer - Video Dubbing Game** for AI agents, developers, and maintainers working on this codebase.
+This document provides a comprehensive technical overview of **Voice Dubber - Video Dubbing Game** for AI agents, developers, and maintainers working on this codebase.
 
 ---
 
