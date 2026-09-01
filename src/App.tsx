@@ -1373,6 +1373,11 @@ export default function App() {
     <div className="min-h-screen bg-[#0A0A0B] text-zinc-100 flex flex-col font-['Plus_Jakarta_Sans'] selection:bg-orange-500 selection:text-white">
       {/* Top Navigation Header */}
       <Header
+        projectTitle={scriptData.scriptTitle}
+        onRenameProject={(newTitle) => {
+          setScriptData((prev) => ({ ...prev, scriptTitle: newTitle }));
+          setHasUnsavedChanges(true);
+        }}
         onOpenAiJudge={() => setIsAiJudgeOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
         hasTakes={audioTakes.length > 0}

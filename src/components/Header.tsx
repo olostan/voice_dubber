@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
-import { Film, Sparkles, Plus, Mic, Folder, CloudUpload, LogOut, User } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Film, Sparkles, Plus, Mic, Folder, CloudUpload, LogOut, User, Edit3, Check } from 'lucide-react';
 import { AuthUserProfile } from '../utils/auth';
 
 interface HeaderProps {
+  projectTitle?: string;
+  onRenameProject?: (newTitle: string) => void;
   onOpenAiJudge: () => void;
   onOpenExport: () => void;
   hasTakes: boolean;
@@ -17,6 +19,8 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  projectTitle = 'Scene Dialogue',
+  onRenameProject,
   onOpenAiJudge,
   onOpenExport,
   hasTakes,
@@ -30,27 +34,82 @@ export const Header: React.FC<HeaderProps> = ({
   isSavingToCloud = false,
 }) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState(projectTitle);
+
+  useEffect(() => {
+    setTitleInput(projectTitle);
+  }, [projectTitle]);
+
+  const handleSaveTitle = () => {
+    const trimmed = titleInput.trim();
+    if (trimmed && onRenameProject && trimmed !== projectTitle) {
+      onRenameProject(trimmed);
+    }
+    setIsEditingTitle(false);
+  };
 
   return (
-    <header id="app-header" className="border-b border-zinc-800/80 bg-[#121215]/95 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-6 py-3">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
-        {/* Brand */}
-        <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
+    <header id="app-header" className="border-b border-zinc-800/80 bg-[#121215]/95 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-6 py-2.5">
+      <div className="max-w-[1720px] mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
+        {/* Left: Brand & Editable Project Title */}
+        <div className="flex items-center gap-3.5 w-full md:w-auto justify-between md:justify-start">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-950/40 text-white font-black text-xl">
-              <Mic className="w-5 h-5 text-white" />
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-950/40 text-white font-black text-lg shrink-0">
+              <Mic className="w-4 h-4 text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-lg text-zinc-100 font-['Outfit'] tracking-tight">
+                <span className="font-extrabold text-base text-zinc-100 font-['Outfit'] tracking-tight">
                   Voice <span className="text-orange-400">Dubber</span>
                 </span>
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 border border-orange-500/30 px-2 py-0.5 rounded-full">
-                  Dub Studio
+                <span className="text-[9px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded-full">
+                  Studio
                 </span>
               </div>
-              <p className="text-xs text-zinc-400">Browser Video Dubbing & Multi-Voice Actor Game</p>
             </div>
+          </div>
+
+          {/* Inline Project Title Rename Pill */}
+          <div className="flex items-center gap-1.5 bg-zinc-900/90 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 px-3 py-1 rounded-xl transition-all shadow-inner group">
+            <Film className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            {isEditingTitle ? (
+              <div className="flex items-center gap-1">
+                <input
+                  id="project-rename-input"
+                  type="text"
+                  value={titleInput}
+                  onChange={(e) => setTitleInput(e.target.value)}
+                  onBlur={handleSaveTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveTitle();
+                    if (e.key === 'Escape') {
+                      setTitleInput(projectTitle);
+                      setIsEditingTitle(false);
+                    }
+                  }}
+                  autoFocus
+                  className="bg-zinc-950 text-white font-extrabold text-xs px-2 py-0.5 rounded border border-orange-500 focus:outline-none max-w-[200px]"
+                />
+                <button
+                  onClick={handleSaveTitle}
+                  className="p-1 rounded bg-orange-500 hover:bg-orange-600 text-black font-bold"
+                  title="Save title"
+                >
+                  <Check className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <button
+                id="rename-project-btn"
+                onClick={() => setIsEditingTitle(true)}
+                className="flex items-center gap-1.5 text-xs font-bold text-zinc-200 hover:text-white transition-colors text-left"
+                title="Click to rename project"
+              >
+                <span className="max-w-[150px] sm:max-w-[220px] truncate">{projectTitle || 'Untitled Dub'}</span>
+                <Edit3 className="w-3 h-3 text-zinc-500 group-hover:text-amber-400 transition-colors shrink-0" />
+              </button>
+            )}
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Character, Player, ScriptData, ScriptLine } from '../types';
 import { Sparkles, Plus, Trash2, Edit3, Wand2, Clock, Check, RefreshCw, Mic, AlertCircle, ChevronRight, Users, UserPlus } from 'lucide-react';
 
@@ -64,6 +64,12 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
   const [customHint, setCustomHint] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [showAiWriter, setShowAiWriter] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState(scriptData.scriptTitle);
+
+  useEffect(() => {
+    setTitleInput(scriptData.scriptTitle);
+  }, [scriptData.scriptTitle]);
 
   const handleLineChange = (id: string, field: keyof ScriptLine, value: any) => {
     const updatedLines = scriptData.lines.map((line) => {
@@ -164,10 +170,50 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
             <h3 className="text-sm font-extrabold text-white uppercase tracking-wider font-['Outfit']">
               Dialogue Teleprompter & Script
             </h3>
-            {scriptData.scriptTitle && (
-              <span className="text-[11px] font-semibold text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded-lg border border-zinc-700">
-                {scriptData.scriptTitle}
-              </span>
+            {isEditingTitle ? (
+              <div className="flex items-center gap-1">
+                <input
+                  id="script-title-rename-input"
+                  type="text"
+                  value={titleInput}
+                  onChange={(e) => setTitleInput(e.target.value)}
+                  onBlur={() => {
+                    const trimmed = titleInput.trim();
+                    if (trimmed && trimmed !== scriptData.scriptTitle) {
+                      onUpdateScriptData({ ...scriptData, scriptTitle: trimmed });
+                    }
+                    setIsEditingTitle(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const trimmed = titleInput.trim();
+                      if (trimmed && trimmed !== scriptData.scriptTitle) {
+                        onUpdateScriptData({ ...scriptData, scriptTitle: trimmed });
+                      }
+                      setIsEditingTitle(false);
+                    }
+                    if (e.key === 'Escape') {
+                      setTitleInput(scriptData.scriptTitle);
+                      setIsEditingTitle(false);
+                    }
+                  }}
+                  autoFocus
+                  className="bg-zinc-950 text-white font-bold text-[11px] px-2 py-0.5 rounded border border-orange-500 focus:outline-none max-w-[180px]"
+                />
+              </div>
+            ) : (
+              <button
+                id="rename-script-title-btn"
+                onClick={() => {
+                  setTitleInput(scriptData.scriptTitle);
+                  setIsEditingTitle(true);
+                }}
+                className="text-[11px] font-semibold text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 px-2 py-0.5 rounded-lg border border-zinc-700 hover:border-zinc-600 flex items-center gap-1 group transition-all"
+                title="Click to rename script"
+              >
+                <span>{scriptData.scriptTitle || 'Scene Dialogue'}</span>
+                <Edit3 className="w-2.5 h-2.5 text-zinc-500 group-hover:text-amber-400 transition-colors" />
+              </button>
             )}
             {characters.length > 0 && (
               <span className="text-[11px] font-bold text-orange-300 bg-orange-500/15 border border-orange-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
