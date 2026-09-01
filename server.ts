@@ -276,7 +276,22 @@ async function startServer() {
   // Upload Video & Vocal Takes Media to Cloud Storage
   app.post("/api/projects/:id/media", async (req, res) => {
     try {
+      const authUser = await getAuthUser(req);
       const projectId = req.params.id;
+      const db = getFirestoreDb();
+
+      // Verify project ownership if project document already exists
+      if (db) {
+        const docRef = db.collection("projects").doc(projectId);
+        const docSnap = await docRef.get();
+        if (docSnap.exists) {
+          const current = docSnap.data();
+          if (authUser && current?.authorId && current.authorId !== authUser.uid) {
+            return res.status(403).json({ error: "Forbidden: You do not have permission to upload media for this dub" });
+          }
+        }
+      }
+
       const { videoBase64, videoType, takes } = req.body;
 
       const MEDIA_BUCKET_NAME = process.env.MEDIA_BUCKET || "fun-voice-dubber-media";
@@ -285,6 +300,9 @@ async function startServer() {
       let videoUrl: string | null = null;
       if (videoBase64) {
         const videoBuffer = Buffer.from(videoBase64, "base64");
+        if (videoBuffer.length > 20 * 1024 * 1024) {
+          return res.status(400).json({ error: "Video exceeds 20MB maximum size" });
+        }
         const ext = (videoType && videoType.includes("mp4")) ? "mp4" : "webm";
         const fileRef = bucket.file(`projects/${projectId}/video.${ext}`);
         await fileRef.save(videoBuffer, {
@@ -325,7 +343,6 @@ async function startServer() {
         }
       }
 
-      const db = getFirestoreDb();
       if (db) {
         const docRef = db.collection("projects").doc(projectId);
         const updateData: Record<string, any> = { updatedAt: Date.now() };
