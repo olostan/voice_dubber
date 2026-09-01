@@ -1,6 +1,6 @@
-import React from 'react';
-import { AudioTake, Character, Player, ScriptLine, VoiceEffect } from '../types';
-import { Volume2, VolumeX, Trash2, Mic, Eye, Radio, Sparkles, Layers, Scissors } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { AudioTake, Character, OriginalAudioMode, Player, ScriptLine, VoiceEffect } from '../types';
+import { Volume2, VolumeX, Trash2, Mic, Eye, Radio, Sparkles, Layers, Scissors, MoveHorizontal } from 'lucide-react';
 
 interface MultiTrackTimelineProps {
   duration: number;
@@ -18,9 +18,12 @@ interface MultiTrackTimelineProps {
   onChangeTakeVolume: (takeId: string, vol: number) => void;
   onChangeTakeEffect: (takeId: string, effect: VoiceEffect) => void;
   onDeleteTake: (takeId: string) => void;
+  onUpdateTakeOffset?: (takeId: string, newOffset: number) => void;
   scriptLines: ScriptLine[];
   videoVolume: number;
   onVideoVolumeChange: (vol: number) => void;
+  originalAudioMode?: OriginalAudioMode;
+  onChangeOriginalAudioMode?: (mode: OriginalAudioMode) => void;
   isRecording: boolean;
 }
 
@@ -40,14 +43,68 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
   onChangeTakeVolume,
   onChangeTakeEffect,
   onDeleteTake,
+  onUpdateTakeOffset,
   scriptLines,
   videoVolume,
   onVideoVolumeChange,
+  originalAudioMode = 'duck_10',
+  onChangeOriginalAudioMode,
   isRecording,
 }) => {
   const effectiveDuration = Math.max(5, duration);
 
+  // Take drag state
+  const [draggingTakeId, setDraggingTakeId] = useState<string | null>(null);
+  const [dragOffsetPreview, setDragOffsetPreview] = useState<{ id: string; offset: number } | null>(null);
+  const dragStartInfo = useRef<{ startX: number; initialOffset: number; timelineWidth: number; takeDuration: number } | null>(null);
+
+  useEffect(() => {
+    if (!draggingTakeId || !dragStartInfo.current) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const { startX, initialOffset, timelineWidth, takeDuration } = dragStartInfo.current!;
+      const deltaX = e.clientX - startX;
+      const deltaSec = (deltaX / timelineWidth) * effectiveDuration;
+      const rawOffset = initialOffset + deltaSec;
+      const maxOffset = Math.max(0, effectiveDuration - takeDuration);
+      const clampedOffset = Math.max(0, Math.min(maxOffset, parseFloat(rawOffset.toFixed(2))));
+      setDragOffsetPreview({ id: draggingTakeId, offset: clampedOffset });
+    };
+
+    const handleMouseUp = () => {
+      if (dragOffsetPreview && onUpdateTakeOffset) {
+        onUpdateTakeOffset(dragOffsetPreview.id, dragOffsetPreview.offset);
+      }
+      setDraggingTakeId(null);
+      setDragOffsetPreview(null);
+      dragStartInfo.current = null;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draggingTakeId, dragOffsetPreview, effectiveDuration, onUpdateTakeOffset]);
+
+  const handleTakeMouseDown = (e: React.MouseEvent, take: AudioTake) => {
+    e.stopPropagation();
+    if (!onUpdateTakeOffset) return;
+    const laneElem = (e.currentTarget.parentElement as HTMLElement);
+    const laneRect = laneElem.getBoundingClientRect();
+    dragStartInfo.current = {
+      startX: e.clientX,
+      initialOffset: take.startTimeOffset,
+      timelineWidth: laneRect.width,
+      takeDuration: take.duration,
+    };
+    setDraggingTakeId(take.id);
+    setDragOffsetPreview({ id: take.id, offset: take.startTimeOffset });
+  };
+
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (draggingTakeId) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const pct = Math.max(0, Math.min(1, clickX / rect.width));
@@ -158,34 +215,57 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
         {/* Track 1: Original Video / Tab Audio Track */}
         <div className="flex items-stretch border-b border-zinc-800/80 bg-zinc-900/40 hover:bg-zinc-900/60 transition-colors">
           {/* Track Header */}
-          <div className="w-48 sm:w-56 shrink-0 p-2.5 border-r border-zinc-800 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <div className="w-3 h-3 rounded-full bg-zinc-500 shrink-0" />
-              <div className="truncate">
-                <p className="text-xs font-bold text-zinc-200 truncate">Video Background</p>
-                <p className="text-[10px] text-zinc-400">Original Tab/Clip Audio</p>
+          <div className="w-48 sm:w-56 shrink-0 p-2.5 border-r border-zinc-800 flex flex-col justify-between gap-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <div className="w-3 h-3 rounded-full bg-zinc-500 shrink-0" />
+                <div className="truncate">
+                  <p className="text-xs font-bold text-zinc-200 truncate">Video Background</p>
+                  <p className="text-[10px] text-zinc-400">Original Tab/Clip Audio</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  id="track-mute-bg-btn"
+                  onClick={() => onVideoVolumeChange(videoVolume > 0 ? 0 : 1)}
+                  className="p-1 rounded text-zinc-400 hover:text-zinc-200"
+                  title={videoVolume === 0 ? 'Unmute video audio' : 'Mute video audio'}
+                >
+                  {videoVolume === 0 ? <VolumeX className="w-3.5 h-3.5 text-orange-400" /> : <Volume2 className="w-3.5 h-3.5" />}
+                </button>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={videoVolume}
+                  onChange={(e) => onVideoVolumeChange(parseFloat(e.target.value))}
+                  className="w-12 h-1 bg-zinc-700 rounded appearance-none accent-zinc-400"
+                  title={`Background Volume: ${Math.round(videoVolume * 100)}%`}
+                />
               </div>
             </div>
 
-            <div className="flex items-center gap-1">
-              <button
-                id="track-mute-bg-btn"
-                onClick={() => onVideoVolumeChange(videoVolume > 0 ? 0 : 1)}
-                className="p-1 rounded text-zinc-400 hover:text-zinc-200"
-                title={videoVolume === 0 ? 'Unmute video audio' : 'Mute video audio'}
-              >
-                {videoVolume === 0 ? <VolumeX className="w-3.5 h-3.5 text-orange-400" /> : <Volume2 className="w-3.5 h-3.5" />}
-              </button>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={videoVolume}
-                onChange={(e) => onVideoVolumeChange(parseFloat(e.target.value))}
-                className="w-12 h-1 bg-zinc-700 rounded appearance-none accent-zinc-400"
-              />
-            </div>
+            {/* Original Audio Treatment Mode */}
+            {onChangeOriginalAudioMode && (
+              <div className="flex items-center justify-between gap-1 pt-1 border-t border-zinc-800/60 text-[10px]">
+                <span className="text-zinc-500 font-semibold uppercase">Duck:</span>
+                <select
+                  id="timeline-audio-mode-select"
+                  value={originalAudioMode}
+                  onChange={(e) => onChangeOriginalAudioMode(e.target.value as OriginalAudioMode)}
+                  className="bg-zinc-950 border border-zinc-700/80 text-amber-300 font-bold rounded-lg px-1.5 py-0.5 text-[10px] focus:outline-none cursor-pointer w-36 truncate"
+                  title="Original audio volume treatment when dubbing"
+                >
+                  <option value="duck_10">🔉 Duck (10% - Default)</option>
+                  <option value="duck_25">🔉 Duck (25% Ambience)</option>
+                  <option value="mute">🔇 Mute (0% - Voice Dub)</option>
+                  <option value="keep">🔊 Full (100% Original)</option>
+                  <option value="smart_duck">⚡ Smart Ducking</option>
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Track Timeline Lane */}
@@ -219,6 +299,11 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
           const assignedPlayer = players.find((p) => p.characterId === char.id) || players[0];
           const isTargetedForRecording = activeRecordingCharacterId === char.id;
           const charLines = scriptLines.filter((l) => l.speakerId === char.id);
+
+          const isThisTakeDragging = draggingTakeId === latestTake?.id;
+          const currentTakeOffset = isThisTakeDragging && dragOffsetPreview
+            ? dragOffsetPreview.offset
+            : latestTake?.startTimeOffset ?? 0;
 
           return (
             <div
@@ -344,22 +429,35 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                   );
                 })}
 
-                {/* Audio Waveform & VAD Speech Blocks */}
+                {/* Audio Waveform & VAD Speech Blocks (Draggable Left / Right) */}
                 {latestTake && (
                   <div
+                    onMouseDown={(e) => handleTakeMouseDown(e, latestTake)}
                     style={{
-                      left: `${(latestTake.startTimeOffset / effectiveDuration) * 100}%`,
+                      left: `${(currentTakeOffset / effectiveDuration) * 100}%`,
                       width: `${(latestTake.duration / effectiveDuration) * 100}%`,
                     }}
-                    className={`absolute top-2 bottom-2 rounded-lg border flex items-center px-1 overflow-hidden pointer-events-none transition-all ${
-                      latestTake.muted
+                    className={`absolute top-2 bottom-2 rounded-lg border flex items-center px-1 overflow-hidden transition-shadow select-none group/take ${
+                      onUpdateTakeOffset ? 'cursor-ew-resize hover:border-emerald-400' : ''
+                    } ${
+                      isThisTakeDragging
+                        ? 'border-emerald-400 bg-emerald-900/60 shadow-xl shadow-emerald-950/80 ring-2 ring-emerald-400 z-20 cursor-grabbing'
+                        : latestTake.muted
                         ? 'opacity-40 border-zinc-700 bg-zinc-900/50'
-                        : 'border-emerald-500/50 bg-emerald-950/30'
+                        : 'border-emerald-500/50 bg-emerald-950/40 hover:bg-emerald-950/60'
                     }`}
+                    title="Click and drag left/right to move audio take on the timeline"
                   >
+                    {/* Drag Handle Icon */}
+                    {onUpdateTakeOffset && (
+                      <div className="absolute left-1 top-1 bottom-1 flex items-center opacity-60 group-hover/take:opacity-100 pointer-events-none">
+                        <MoveHorizontal className="w-3 h-3 text-emerald-300" />
+                      </div>
+                    )}
+
                     {/* Render Waveform Bars */}
                     {latestTake.waveformData && latestTake.waveformData.length > 0 ? (
-                      <div className="w-full h-full flex items-center justify-between gap-[1px]">
+                      <div className="w-full h-full flex items-center justify-between gap-[1px] pl-3 pointer-events-none">
                         {latestTake.waveformData.map((val, idx) => (
                           <div
                             key={idx}
@@ -371,9 +469,16 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                         ))}
                       </div>
                     ) : (
-                      <div className="text-[10px] text-emerald-400 font-mono font-bold flex items-center gap-1">
+                      <div className="text-[10px] text-emerald-400 font-mono font-bold flex items-center gap-1 pl-3 pointer-events-none">
                         <Radio className="w-3 h-3 animate-pulse" />
                         <span>Dubbed Take ({latestTake.duration.toFixed(1)}s)</span>
+                      </div>
+                    )}
+
+                    {/* Drag Offset Pill / Tooltip */}
+                    {isThisTakeDragging && (
+                      <div className="absolute top-0 right-1 bg-zinc-950/90 text-emerald-300 border border-emerald-500/50 px-1 py-0.2 rounded text-[9px] font-mono font-bold shadow-md pointer-events-none">
+                        {currentTakeOffset.toFixed(2)}s
                       </div>
                     )}
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Character, Player, VoiceEffect } from '../types';
+import { Character, OriginalAudioMode, Player, VoiceEffect } from '../types';
 import { Mic, Square, Sparkles, Clock, Sliders, Bell, UserCheck } from 'lucide-react';
 
 interface RecordingControlsProps {
@@ -17,8 +17,9 @@ interface RecordingControlsProps {
   onToggleCountIn: () => void;
   activeVoiceEffect: VoiceEffect;
   onChangeVoiceEffect: (effect: VoiceEffect) => void;
-  voiceReplacementMode?: 'mute' | 'duck' | 'keep';
-  onChangeVoiceReplacementMode?: (mode: 'mute' | 'duck' | 'keep') => void;
+  originalAudioMode?: OriginalAudioMode;
+  onChangeOriginalAudioMode?: (mode: OriginalAudioMode) => void;
+  recordingLineText?: string | null;
 }
 
 export const RecordingControls: React.FC<RecordingControlsProps> = ({
@@ -36,8 +37,9 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   onToggleCountIn,
   activeVoiceEffect,
   onChangeVoiceEffect,
-  voiceReplacementMode = 'mute',
-  onChangeVoiceReplacementMode,
+  originalAudioMode = 'duck_10',
+  onChangeOriginalAudioMode,
+  recordingLineText,
 }) => {
   const activeChar = characters.find((c) => c.id === activeRecordingCharacterId) || characters[0];
   const activePlayer = players.find((p) => p.characterId === activeChar?.id) || players[0];
@@ -98,10 +100,12 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
           </button>
         )}
 
-        <div className="text-[10px] text-zinc-400 flex items-center gap-1.5">
+        <div className="text-[10px] text-zinc-400 flex items-center gap-1.5 max-w-sm truncate">
           <span>Target: <strong className="text-zinc-200">{activeChar?.name}</strong></span>
           <span>•</span>
-          <span className="text-amber-400 font-semibold">{activeChar?.voiceStyle}</span>
+          <span className="text-amber-400 font-semibold truncate">
+            {recordingLineText ? `"${recordingLineText}"` : activeChar?.voiceStyle}
+          </span>
         </div>
       </div>
 
@@ -167,20 +171,22 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
             </select>
           </div>
 
-          {/* Original Voice Mode Selector */}
-          {onChangeVoiceReplacementMode && (
+          {/* Original Audio Treatment Selector */}
+          {onChangeOriginalAudioMode && (
             <div className="flex items-center gap-1 bg-zinc-950 px-2.5 py-1.5 rounded-xl border border-zinc-800 text-[11px]">
-              <span className="text-zinc-400">Dub:</span>
+              <span className="text-zinc-400">Duck:</span>
               <select
                 id="voice-replacement-mode-select"
-                value={voiceReplacementMode}
-                onChange={(e) => onChangeVoiceReplacementMode(e.target.value as 'mute' | 'duck' | 'keep')}
+                value={originalAudioMode}
+                onChange={(e) => onChangeOriginalAudioMode(e.target.value as OriginalAudioMode)}
                 className="bg-transparent text-amber-300 font-bold focus:outline-none cursor-pointer"
-                title="Voice Replacement Mode: Mutes original audio so only your voice is heard"
+                title="Original Audio Treatment: Duck original audio so your voice dub is clear"
               >
-                <option value="mute" className="bg-zinc-900">🔇 Mute Original (Voice Replace)</option>
-                <option value="duck" className="bg-zinc-900">🔉 Duck (10% Ambient)</option>
-                <option value="keep" className="bg-zinc-900">🔊 Keep Original</option>
+                <option value="duck_10" className="bg-zinc-900">🔉 Duck (10% - Default)</option>
+                <option value="duck_25" className="bg-zinc-900">🔉 Duck (25% Ambience)</option>
+                <option value="mute" className="bg-zinc-900">🔇 Mute (0% - Voice Dub)</option>
+                <option value="keep" className="bg-zinc-900">🔊 Keep (100% Original)</option>
+                <option value="smart_duck" className="bg-zinc-900">⚡ Smart Ducking</option>
               </select>
             </div>
           )}

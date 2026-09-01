@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import os from "os";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -58,6 +59,16 @@ async function callGeminiWithRetry<T>(fn: () => Promise<T>, maxRetries = 2, dela
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: "25mb" }));
+
+  // Static Favicons
+  app.get("/favicon.ico", (_req, res) => {
+    res.type("image/svg+xml");
+    res.sendFile(path.join(process.cwd(), "public", "favicon.svg"));
+  });
+  app.get("/favicon.svg", (_req, res) => {
+    res.type("image/svg+xml");
+    res.sendFile(path.join(process.cwd(), "public", "favicon.svg"));
+  });
 
   // API Routes
   app.get("/api/health", (_req, res) => {
@@ -525,7 +536,28 @@ YOUR GOAL:
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`The Choice Voicer Server running on http://0.0.0.0:${PORT}`);
+    let networkIp: string | undefined;
+    try {
+      const interfaces = os.networkInterfaces();
+      for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name] || []) {
+          if (iface.family === "IPv4" && !iface.internal) {
+            networkIp = iface.address;
+            break;
+          }
+        }
+        if (networkIp) break;
+      }
+    } catch {
+      // ignore
+    }
+
+    console.log(`\n  Voice Dubber Server running at:`);
+    console.log(`  > Local:   http://localhost:${PORT}`);
+    if (networkIp) {
+      console.log(`  > Network: http://${networkIp}:${PORT}`);
+    }
+    console.log();
   });
 }
 

@@ -9,6 +9,12 @@ export interface TabCaptureSession {
 
 // Start Screen / Tab capture and return a session handle that can be stopped at any time
 export async function startTabOrScreenCapture(): Promise<TabCaptureSession> {
+  if (!navigator?.mediaDevices?.getDisplayMedia) {
+    throw new Error(
+      'Screen/Tab capture is unavailable in this environment. Please ensure you are accessing the app via http://localhost:3000 (or HTTPS), or open the app in a standalone desktop browser tab.'
+    );
+  }
+
   const displayStream = await navigator.mediaDevices.getDisplayMedia({
     video: {
       displaySurface: 'browser',

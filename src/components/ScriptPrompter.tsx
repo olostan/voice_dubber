@@ -17,6 +17,11 @@ interface ScriptPrompterProps {
   isTranscribingAudio?: boolean;
   transcriptionError?: string | null;
   onClearTranscriptionError?: () => void;
+  onSeek?: (time: number) => void;
+  onRecordLine?: (line: ScriptLine) => void;
+  activeRecordingLineId?: string | null;
+  nextPendingLineId?: string | null;
+  isRecording?: boolean;
 }
 
 const GENRE_PRESETS = [
@@ -49,6 +54,11 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
   isTranscribingAudio,
   transcriptionError,
   onClearTranscriptionError,
+  onSeek,
+  onRecordLine,
+  activeRecordingLineId,
+  nextPendingLineId,
+  isRecording = false,
 }) => {
   const [selectedGenre, setSelectedGenre] = useState('Film Noir Detective');
   const [customHint, setCustomHint] = useState('');
@@ -397,17 +407,31 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
             const char = characters.find((c) => c.id === line.speakerId);
             const isCurrentlyActive = currentTime >= line.startTime && currentTime <= line.endTime;
             const isPast = currentTime > line.endTime;
+            const isRecordingThisLine = activeRecordingLineId === line.id && isRecording;
+            const isNextPending = nextPendingLineId === line.id;
 
             return (
               <div
                 key={line.id}
+                onClick={() => {
+                  if (!isEditing && onSeek) {
+                    onSeek(line.startTime);
+                  }
+                }}
                 className={`p-3 rounded-xl border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-3 ${
-                  isCurrentlyActive
+                  !isEditing ? 'cursor-pointer hover:shadow-md' : ''
+                } ${
+                  isRecordingThisLine
+                    ? 'border-red-500 bg-red-950/40 shadow-xl shadow-red-950/60 ring-2 ring-red-500 scale-[1.01]'
+                    : isNextPending
+                    ? 'border-amber-500 bg-amber-950/30 shadow-lg shadow-amber-950/40 ring-1 ring-amber-400'
+                    : isCurrentlyActive
                     ? 'border-orange-500 bg-orange-950/30 shadow-lg shadow-orange-950/40 ring-1 ring-orange-500 scale-[1.01]'
                     : isPast
-                    ? 'border-zinc-800/60 bg-zinc-950/40 opacity-70'
+                    ? 'border-zinc-800/60 bg-zinc-950/40 opacity-75 hover:opacity-100 hover:border-zinc-700'
                     : 'border-zinc-800 bg-zinc-950/80 hover:border-zinc-700'
                 }`}
+                title={!isEditing ? `Click to jump to ${line.startTime.toFixed(1)}s` : undefined}
               >
                 {/* Left Column: Speaker & Timing */}
                 <div className="flex items-center gap-2.5 shrink-0">
@@ -432,7 +456,19 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
                       ))}
                     </select>
                   ) : (
-                    <span className="text-xs font-extrabold text-white">{line.speakerName}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-extrabold text-white">{line.speakerName}</span>
+                      {isRecordingThisLine && (
+                        <span className="text-[9px] font-black uppercase tracking-wider text-red-300 bg-red-500/30 px-1.5 py-0.5 rounded border border-red-500/50 animate-pulse">
+                          ● Recording
+                        </span>
+                      )}
+                      {isNextPending && (
+                        <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/30 px-1.5 py-0.5 rounded border border-amber-500/50 animate-pulse">
+                          👉 Next Up
+                        </span>
+                      )}
+                    </div>
                   )}
 
                   {/* Timing Badge */}
@@ -494,8 +530,8 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
                   )}
                 </div>
 
-                {/* Right: Delete button in edit mode */}
-                {isEditing && (
+                {/* Right: Actions */}
+                {isEditing ? (
                   <button
                     onClick={() => handleDeleteLine(line.id)}
                     className="p-1 rounded text-zinc-500 hover:text-orange-400"
@@ -503,6 +539,27 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
+                ) : (
+                  onRecordLine && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRecordLine(line);
+                      }}
+                      disabled={isRecording}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shrink-0 shadow-md ${
+                        isRecordingThisLine
+                          ? 'bg-red-600 text-white animate-pulse'
+                          : isNextPending
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-zinc-950 ring-2 ring-amber-400 hover:from-amber-400 hover:to-orange-400'
+                          : 'bg-zinc-900 hover:bg-orange-500 text-zinc-300 hover:text-white border border-zinc-700/80 hover:border-orange-400'
+                      }`}
+                      title={`Record / re-dub this line for ${line.speakerName}`}
+                    >
+                      <Mic className="w-3.5 h-3.5" />
+                      <span>{isPast ? 'Re-record' : 'Record Line'}</span>
+                    </button>
+                  )
                 )}
               </div>
             );

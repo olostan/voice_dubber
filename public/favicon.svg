@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18181B" />
+      <stop offset="100%" stop-color="#09090B" />
+    </linearGradient>
+    <linearGradient id="brandGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF6B00" />
+      <stop offset="50%" stop-color="#FF3E00" />
+      <stop offset="100%" stop-color="#D946EF" />
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8A00" />
+      <stop offset="100%" stop-color="#EC4899" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background container -->
+  <rect width="64" height="64" rx="16" fill="url(#bgGrad)" />
+  <rect width="62" height="62" x="1" y="1" rx="15" fill="none" stroke="url(#brandGrad)" stroke-width="1.5" stroke-opacity="0.6" />
+
+  <!-- Radiating Audio Waveforms -->
+  <!-- Left waves -->
+  <path d="M 15 24 C 11 27, 11 37, 15 40" fill="none" stroke="url(#glowGrad)" stroke-width="2.5" stroke-linecap="round" opacity="0.85" />
+  <path d="M 10 20 C 5 25, 5 39, 10 44" fill="none" stroke="#FF6B00" stroke-width="2" stroke-linecap="round" opacity="0.4" />
+
+  <!-- Right waves -->
+  <path d="M 49 24 C 53 27, 53 37, 49 40" fill="none" stroke="url(#glowGrad)" stroke-width="2.5" stroke-linecap="round" opacity="0.85" />
+  <path d="M 54 20 C 59 25, 59 39, 54 44" fill="none" stroke="#D946EF" stroke-width="2" stroke-linecap="round" opacity="0.4" />
+
+  <!-- Microphone Stand/U-Mount -->
+  <path d="M 23 28 C 23 37, 41 37, 41 28" fill="none" stroke="#E4E4E7" stroke-width="3" stroke-linecap="round" />
+  <path d="M 32 38 L 32 47" stroke="#E4E4E7" stroke-width="3" stroke-linecap="round" />
+  <path d="M 25 48 L 39 48" stroke="url(#brandGrad)" stroke-width="3.5" stroke-linecap="round" />
+
+  <!-- Microphone Body (Capsule) -->
+  <rect x="26" y="14" width="12" height="20" rx="6" fill="url(#brandGrad)" filter="url(#glow)" />
+  
+  <!-- Mic Grille Accent Lines -->
+  <line x1="28" y1="20" x2="36" y2="20" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round" opacity="0.75" />
+  <line x1="28" y1="24" x2="36" y2="24" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round" opacity="0.75" />
+
+  <!-- Recording / Live Indicator Dot -->
+  <circle cx="45" cy="15" r="3.5" fill="#EF4444" />
+  <circle cx="45" cy="15" r="5.5" fill="none" stroke="#EF4444" stroke-width="1" opacity="0.6">
+    <animate attributeName="r" values="3.5;7;3.5" dur="2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.8;0;0.8" dur="2s" repeatCount="indefinite"/>
+  </circle>
+</svg>

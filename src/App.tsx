@@ -4,6 +4,7 @@ import {
   Character,
   GameMode,
   JudgeResult,
+  OriginalAudioMode,
   Player,
   ScriptData,
   ScriptLine,
@@ -38,6 +39,8 @@ import { AiJudgeModal } from './components/AiJudgeModal';
 import { ExportModal } from './components/ExportModal';
 import { WelcomeCapturePrompt } from './components/WelcomeCapturePrompt';
 import { ActiveTabRecordingModal } from './components/ActiveTabRecordingModal';
+import { RotateCcw, Mic, CheckCircle2, ChevronRight, Volume2, Sparkles, UserCheck } from 'lucide-react';
+import { saveDubSession, loadDubSession, clearDubSession } from './utils/persistence';
 
 export default function App() {
   // Modals
@@ -47,8 +50,10 @@ export default function App() {
   // Active Clip & Video Source - starts empty so user is prompted to record from tab
   const [presetClip, setPresetClip] = useState<PresetClipInfo | null>(null);
   const [videoSource, setVideoSource] = useState<VideoSource | null>(null);
+  const [currentVideoBlob, setCurrentVideoBlob] = useState<Blob | null>(null);
   const [isCapturingTab, setIsCapturingTab] = useState(false);
   const [activeCaptureSession, setActiveCaptureSession] = useState<TabCaptureSession | null>(null);
+  const [isLoadedFromStorage, setIsLoadedFromStorage] = useState(false);
 
   // Video / Canvas References
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -59,9 +64,16 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [videoVolume, setVideoVolume] = useState<number>(0.8);
-  const [voiceReplacementMode, setVoiceReplacementMode] = useState<'mute' | 'duck' | 'keep'>('keep');
+  const [originalAudioMode, setOriginalAudioMode] = useState<OriginalAudioMode>('duck_10');
   const animFrameRef = useRef<number | null>(null);
   const lastPlayTimeRef = useRef<number>(0);
+
+  // Line-by-Line Dubbing State
+  const [targetRecordingLine, setTargetRecordingLine] = useState<ScriptLine | null>(null);
+  const [nextPendingLine, setNextPendingLine] = useState<ScriptLine | null>(null);
+  const [lastCompletedLine, setLastCompletedLine] = useState<ScriptLine | null>(null);
+  const targetRecordingLineRef = useRef<ScriptLine | null>(null);
+  const isRecordingRef = useRef<boolean>(false);
 
   // Audio Transcription & Diarization State
   const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
@@ -110,6 +122,15 @@ export default function App() {
   const [vuLevel, setVuLevel] = useState(0);
   const micRecorderRef = useRef<MicTakeRecorder | null>(null);
 
+  // Keep refs in sync for requestAnimationFrame loop
+  useEffect(() => {
+    targetRecordingLineRef.current = targetRecordingLine;
+  }, [targetRecordingLine]);
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+
   // Multi-Track Takes
   const [audioTakes, setAudioTakes] = useState<AudioTake[]>([]);
   const activeSourcesRef = useRef<{ source: AudioBufferSourceNode; gain: GainNode }[]>([]);
@@ -118,11 +139,130 @@ export default function App() {
   const [judgeResult, setJudgeResult] = useState<JudgeResult | null>(null);
   const [isJudgeLoading, setIsJudgeLoading] = useState(false);
 
+  // 1. Restore Working Dub Session from IndexedDB on initial mount
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const saved = await loadDubSession();
+        if (isMounted && saved) {
+          if (saved.videoSource || saved.presetClip || saved.audioTakes.length > 0) {
+            setDuration(saved.duration);
+            setVideoVolume(saved.videoVolume);
+            setOriginalAudioMode(saved.originalAudioMode);
+            setCharacters(saved.characters);
+            setPlayers(saved.players);
+            setScriptData(saved.scriptData);
+            setActiveRecordingCharacterId(saved.activeRecordingCharacterId);
+            setActiveVoiceEffect(saved.activeVoiceEffect);
+            setLatencyOffsetMs(saved.latencyOffsetMs);
+            setUseCountIn(saved.useCountIn);
+            setJudgeResult(saved.judgeResult);
+            setPresetClip(saved.presetClip);
+            setVideoSource(saved.videoSource);
+            setCurrentVideoBlob(saved.videoBlob);
+            setAudioTakes(saved.audioTakes);
+
+            setNotificationToast({
+              message: `📂 Restored your previous dubbing session.`,
+              type: 'info',
+            });
+            setTimeout(() => setNotificationToast(null), 5000);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to restore session from IndexedDB:', e);
+      } finally {
+        if (isMounted) {
+          setIsLoadedFromStorage(true);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // 2. Debounced Auto-Save Working Dub Session to IndexedDB
+  useEffect(() => {
+    if (!isLoadedFromStorage) return;
+    if (!videoSource && !presetClip && audioTakes.length === 0) return;
+
+    const timer = setTimeout(() => {
+      saveDubSession({
+        duration,
+        videoVolume,
+        originalAudioMode,
+        characters,
+        players,
+        scriptData,
+        activeRecordingCharacterId,
+        activeVoiceEffect,
+        latencyOffsetMs,
+        useCountIn,
+        judgeResult,
+        presetClip,
+        videoSource,
+        audioTakes,
+        videoBlob: currentVideoBlob,
+      });
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [
+    isLoadedFromStorage,
+    duration,
+    videoVolume,
+    originalAudioMode,
+    characters,
+    players,
+    scriptData,
+    activeRecordingCharacterId,
+    activeVoiceEffect,
+    latencyOffsetMs,
+    useCountIn,
+    judgeResult,
+    presetClip,
+    videoSource,
+    audioTakes,
+    currentVideoBlob,
+  ]);
+
+  // Calculate Effective Video Volume with Selected Ducking Treatment
+  const isSpeakingNow = audioTakes.some((take) => {
+    if (take.muted) return false;
+    const takeStart = take.startTimeOffset;
+    const takeEnd = takeStart + take.duration;
+    return currentTime >= takeStart && currentTime <= takeEnd;
+  });
+
+  const effectiveVideoVolume = (() => {
+    if (audioTakes.length === 0 && !isRecording) {
+      return videoVolume;
+    }
+    switch (originalAudioMode) {
+      case 'duck_10':
+        return videoVolume * 0.10;
+      case 'duck_25':
+        return videoVolume * 0.25;
+      case 'mute':
+        return 0;
+      case 'keep':
+        return videoVolume;
+      case 'smart_duck':
+        return isSpeakingNow || isRecording ? videoVolume * 0.10 : videoVolume;
+      default:
+        return videoVolume * 0.10;
+    }
+  })();
+
   // Synchronize characters when preset changes
   const handleSelectPreset = (clip: PresetClipInfo) => {
     stopPlayback();
     setPresetClip(clip);
     setVideoSource(null);
+    setCurrentVideoBlob(null);
     setDuration(clip.duration);
     setCurrentTime(0);
 
@@ -254,8 +394,8 @@ export default function App() {
         lines: mappedLines,
       });
 
-      // 5. Default to keeping audio audible while allowing voice dubbing
-      setVoiceReplacementMode('keep');
+      // 5. Default to reducing volume to 10% for clear dubbing over ambience
+      setOriginalAudioMode('duck_10');
       setVideoVolume(0.8);
       setTranscriptionError(null);
 
@@ -314,6 +454,12 @@ export default function App() {
           type: 'info',
         });
         setTimeout(() => setNotificationToast(null), 5000);
+      } else if (err?.message) {
+        setNotificationToast({
+          message: err.message,
+          type: 'error',
+        });
+        setTimeout(() => setNotificationToast(null), 7000);
       }
     }
   };
@@ -339,6 +485,7 @@ export default function App() {
         hasAudioTrack: result.hasAudio,
       });
 
+      setCurrentVideoBlob(result.videoBlob || null);
       setPresetClip(null);
       setDuration(result.duration);
       setCurrentTime(0);
@@ -379,6 +526,7 @@ export default function App() {
         height: video.videoHeight || 720,
         hasAudioTrack: true,
       });
+      setCurrentVideoBlob(file);
       setPresetClip(null);
       setDuration(dur);
       setCurrentTime(0);
@@ -606,20 +754,26 @@ export default function App() {
   };
 
   // Playback Animation Frame Loop
+  // Playback Animation Frame Loop
   useEffect(() => {
     if (!isPlaying) return;
 
     const loop = () => {
+      let relativeTime = 0;
+
       // If we have an active video element with actual video playback, sync to its clock
       if (videoElemRef.current && (videoSource?.type === 'screen_capture' || videoSource?.type === 'upload')) {
         const video = videoElemRef.current;
         const startOff = videoSource?.trimStartOffset || 0;
-        const relativeTime = Math.max(0, video.currentTime - startOff);
+        relativeTime = Math.max(0, video.currentTime - startOff);
         setCurrentTime(relativeTime);
 
         if (video.ended || relativeTime >= duration) {
           stopPlayback();
           setCurrentTime(duration);
+          if (isRecordingRef.current) {
+            handleStopRecording();
+          }
           return;
         }
       } else {
@@ -630,12 +784,24 @@ export default function App() {
 
         setCurrentTime((prev) => {
           const next = prev + delta;
+          relativeTime = next;
           if (next >= duration) {
             stopPlayback();
+            if (isRecordingRef.current) {
+              handleStopRecording();
+            }
             return duration;
           }
           return next;
         });
+      }
+
+      // Auto-pause when recording a specific dialogue line
+      if (targetRecordingLineRef.current && isRecordingRef.current) {
+        if (relativeTime >= targetRecordingLineRef.current.endTime + 0.35) {
+          handleStopRecording();
+          return;
+        }
       }
 
       animFrameRef.current = requestAnimationFrame(loop);
@@ -652,13 +818,58 @@ export default function App() {
     };
   }, [isPlaying, duration, stopPlayback, videoSource]);
 
-  // Start Recording Dub Take (with 3-2-1 Metronome Lead-in)
+  // Start Recording Dub Take for a Specific Dialogue Line
+  const handleRecordSpecificLine = async (line: ScriptLine) => {
+    stopPlayback();
+    setNextPendingLine(null);
+    setTargetRecordingLine(line);
+    setActiveRecordingCharacterId(line.speakerId);
+
+    const startPos = Math.max(0, line.startTime);
+    setCurrentTime(startPos);
+    if (videoElemRef.current) {
+      videoElemRef.current.currentTime = startPos + (videoSource?.trimStartOffset || 0);
+    }
+
+    const startRecordingActual = async () => {
+      setCountdown(null);
+      setCurrentTime(startPos);
+
+      micRecorderRef.current = new MicTakeRecorder();
+      await micRecorderRef.current.start((level) => setVuLevel(level));
+
+      setIsRecording(true);
+      startPlayback(startPos);
+    };
+
+    if (useCountIn) {
+      setCountdown(3);
+      playMetronomeBeep(false);
+
+      setTimeout(() => {
+        setCountdown(2);
+        playMetronomeBeep(false);
+      }, 1000);
+
+      setTimeout(() => {
+        setCountdown(1);
+        playMetronomeBeep(false);
+      }, 2000);
+
+      setTimeout(() => {
+        setCountdown(0);
+        playMetronomeBeep(true);
+        startRecordingActual();
+      }, 3000);
+    } else {
+      startRecordingActual();
+    }
+  };
+
+  // Start Standard Recording Dub Take (with 3-2-1 Metronome Lead-in)
   const handleStartRecording = async () => {
     stopPlayback();
-
-    const targetChar = characters.find((c) => c.id === activeRecordingCharacterId) || characters[0];
-    const assignedPlayer = players.find((p) => p.characterId === targetChar.id);
-    const effectToUse = assignedPlayer?.voiceEffect || activeVoiceEffect;
+    setTargetRecordingLine(null);
 
     const startRecordingActual = async () => {
       setCountdown(null);
@@ -668,7 +879,7 @@ export default function App() {
       await micRecorderRef.current.start((level) => setVuLevel(level));
 
       setIsRecording(true);
-      startPlayback();
+      startPlayback(0);
     };
 
     if (useCountIn) {
@@ -697,7 +908,8 @@ export default function App() {
 
   // Stop Recording Dub Take and Process with VAD & Waveform
   const handleStopRecording = async () => {
-    if (!isRecording || !micRecorderRef.current) return;
+    if (!isRecordingRef.current && !isRecording) return;
+    if (!micRecorderRef.current) return;
 
     stopPlayback();
     setIsRecording(false);
@@ -707,6 +919,7 @@ export default function App() {
     micRecorderRef.current = null;
 
     if (recDuration < 0.3) {
+      setTargetRecordingLine(null);
       return; // ignore accidental micro-taps
     }
 
@@ -718,6 +931,11 @@ export default function App() {
       const targetChar = characters.find((c) => c.id === activeRecordingCharacterId) || characters[0];
       const assignedPlayer = players.find((p) => p.characterId === targetChar.id) || players[0];
 
+      const completedTargetLine = targetRecordingLineRef.current;
+      const takeStartOffset = completedTargetLine
+        ? completedTargetLine.startTime
+        : Math.max(0, latencyOffsetMs / 1000);
+
       const newTake: AudioTake = {
         id: `take-${Date.now()}`,
         playerId: assignedPlayer.id,
@@ -726,7 +944,7 @@ export default function App() {
         audioUrl: url,
         audioBuffer,
         duration: recDuration,
-        startTimeOffset: Math.max(0, latencyOffsetMs / 1000),
+        startTimeOffset: takeStartOffset,
         volume: 1.0,
         muted: false,
         solo: false,
@@ -743,9 +961,45 @@ export default function App() {
       });
 
       playSoundEffect('rimshot');
+
+      // If recording a specific line, auto-advance to next actor and queue next line
+      if (completedTargetLine) {
+        setLastCompletedLine(completedTargetLine);
+        setTargetRecordingLine(null);
+
+        const curIdx = scriptData.lines.findIndex((l) => l.id === completedTargetLine.id);
+        if (curIdx !== -1 && curIdx < scriptData.lines.length - 1) {
+          const nextLine = scriptData.lines[curIdx + 1];
+          setNextPendingLine(nextLine);
+          setActiveRecordingCharacterId(nextLine.speakerId);
+
+          const nextChar = characters.find((c) => c.id === nextLine.speakerId);
+          const nextActor = players.find((p) => p.characterId === nextLine.speakerId);
+
+          setNotificationToast({
+            message: `🎬 "${completedTargetLine.speakerName}" take recorded! Next actor: ${nextActor?.name || nextLine.speakerName} as ${nextChar?.name || nextLine.speakerName}. Press Space to record next line.`,
+            type: 'success',
+          });
+          setTimeout(() => setNotificationToast(null), 8000);
+        } else {
+          setNextPendingLine(null);
+          setNotificationToast({
+            message: `🎉 All dialogue lines recorded! Play your master dub or review with the AI Judge.`,
+            type: 'success',
+          });
+          setTimeout(() => setNotificationToast(null), 6000);
+        }
+      }
     } catch (e) {
       console.warn('Process audio take error:', e);
     }
+  };
+
+  // Update Take Start Time Offset when Dragged on Timeline
+  const handleUpdateTakeOffset = (takeId: string, newOffset: number) => {
+    setAudioTakes((prev) =>
+      prev.map((t) => (t.id === takeId ? { ...t, startTimeOffset: Math.max(0, newOffset) } : t))
+    );
   };
 
   // Toggle Mute / Solo / Volume / Delete Take handlers
@@ -867,7 +1121,7 @@ export default function App() {
     }
   };
 
-  // Spacebar Global Shortcut for Record & Play
+  // Spacebar & Keyboard Global Shortcuts for Record, Next Actor & Play
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) {
@@ -877,15 +1131,20 @@ export default function App() {
         e.preventDefault();
         if (isRecording) {
           handleStopRecording();
+        } else if (nextPendingLine) {
+          handleRecordSpecificLine(nextPendingLine);
         } else {
           togglePlayPause();
         }
+      } else if (e.code === 'KeyR' && lastCompletedLine && !isRecording) {
+        e.preventDefault();
+        handleRecordSpecificLine(lastCompletedLine);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isRecording, isPlaying, togglePlayPause]);
+  }, [isRecording, isPlaying, nextPendingLine, lastCompletedLine, togglePlayPause]);
 
   return (
     <div className="min-h-screen bg-[#0A0A0B] text-zinc-100 flex flex-col font-['Plus_Jakarta_Sans'] selection:bg-orange-500 selection:text-white">
@@ -897,8 +1156,10 @@ export default function App() {
         hasVideoLoaded={Boolean(videoSource || presetClip)}
         onResetClip={() => {
           stopPlayback();
+          clearDubSession();
           setPresetClip(null);
           setVideoSource(null);
+          setCurrentVideoBlob(null);
           setAudioTakes([]);
           setJudgeResult(null);
           setCharacters([]);
@@ -909,6 +1170,11 @@ export default function App() {
             characters: [],
             lines: [],
           });
+          setNotificationToast({
+            message: '🗑️ Cleared working project. Ready for a new video or preset.',
+            type: 'info',
+          });
+          setTimeout(() => setNotificationToast(null), 4000);
         }}
       />
 
@@ -957,6 +1223,76 @@ export default function App() {
           />
         ) : (
           <>
+            {/* Interactive Next Actor Queue & Continuity Banner */}
+            {nextPendingLine && !isRecording && (
+              <div
+                id="next-actor-prompter-banner"
+                className="bg-gradient-to-r from-amber-500/15 via-orange-500/15 to-amber-500/15 border-2 border-amber-500/60 rounded-3xl p-4 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2"
+              >
+                <div className="flex items-center gap-3.5 w-full md:w-auto">
+                  <div
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shadow-xl border border-white/30 shrink-0"
+                    style={{
+                      backgroundColor: characters.find((c) => c.id === nextPendingLine.speakerId)?.color || '#f59e0b',
+                    }}
+                  >
+                    {characters.find((c) => c.id === nextPendingLine.speakerId)?.avatarIcon || '🎭'}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/40 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        Next Actor Up
+                      </span>
+                      <span className="text-sm font-black text-white">
+                        {players.find((p) => p.characterId === nextPendingLine.speakerId)?.name || nextPendingLine.speakerName}
+                        <span className="text-zinc-400 font-normal"> as </span>
+                        <span className="text-amber-300 font-extrabold">{nextPendingLine.speakerName}</span>
+                      </span>
+                      <span className="text-[11px] font-mono text-zinc-400 bg-zinc-950 px-2 py-0.5 rounded border border-zinc-800">
+                        Cue: {nextPendingLine.startTime.toFixed(1)}s - {nextPendingLine.endTime.toFixed(1)}s
+                      </span>
+                    </div>
+                    <p className="text-xs sm:text-sm font-bold text-zinc-100 mt-1 italic">
+                      "{nextPendingLine.text}"
+                      {nextPendingLine.cue && (
+                        <span className="text-amber-400/90 ml-2 not-italic font-medium text-xs">
+                          [{nextPendingLine.cue}]
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
+                  {lastCompletedLine && (
+                    <button
+                      onClick={() => handleRecordSpecificLine(lastCompletedLine)}
+                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/80 hover:border-zinc-600 transition-all shadow-sm"
+                      title="Re-record previous dialogue line"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Re-record (R)</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleRecordSpecificLine(nextPendingLine)}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-xl shadow-orange-950/80 border border-orange-400/50 animate-pulse transition-all transform hover:scale-105"
+                  >
+                    <Mic className="w-4 h-4" />
+                    <span>Record Next Line (Space)</span>
+                  </button>
+                  <button
+                    onClick={() => setNextPendingLine(null)}
+                    className="p-2 text-zinc-500 hover:text-zinc-200 rounded-xl hover:bg-zinc-800 transition-colors"
+                    title="Dismiss prompt"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Top Row: Video Player + Teleprompter Script */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
               {/* Main Video/Canvas Player (7 cols) */}
@@ -976,13 +1312,8 @@ export default function App() {
                   activeRecordingCharacterId={activeRecordingCharacterId}
                   isRecording={isRecording}
                   countdown={countdown}
-                  videoVolume={videoVolume}
-                  onVolumeChange={(vol) => {
-                    setVideoVolume(vol);
-                    if (vol === 0) setVoiceReplacementMode('mute');
-                    else if (vol <= 0.25) setVoiceReplacementMode('duck');
-                    else setVoiceReplacementMode('keep');
-                  }}
+                  videoVolume={effectiveVideoVolume}
+                  onVolumeChange={setVideoVolume}
                   onCanvasRefReady={(canvas) => {
                     canvasRef.current = canvas;
                   }}
@@ -1007,13 +1338,9 @@ export default function App() {
                   onToggleCountIn={() => setUseCountIn(!useCountIn)}
                   activeVoiceEffect={activeVoiceEffect}
                   onChangeVoiceEffect={setActiveVoiceEffect}
-                  voiceReplacementMode={voiceReplacementMode}
-                  onChangeVoiceReplacementMode={(m) => {
-                    setVoiceReplacementMode(m);
-                    if (m === 'mute') setVideoVolume(0);
-                    else if (m === 'duck') setVideoVolume(0.15);
-                    else setVideoVolume(0.8);
-                  }}
+                  originalAudioMode={originalAudioMode}
+                  onChangeOriginalAudioMode={setOriginalAudioMode}
+                  recordingLineText={targetRecordingLine?.text}
                 />
               </div>
 
@@ -1037,6 +1364,11 @@ export default function App() {
                   isGeneratingAi={isGeneratingAiScript}
                   transcriptionError={transcriptionError}
                   onClearTranscriptionError={() => setTranscriptionError(null)}
+                  onSeek={handleSeek}
+                  onRecordLine={handleRecordSpecificLine}
+                  activeRecordingLineId={targetRecordingLine?.id}
+                  nextPendingLineId={nextPendingLine?.id}
+                  isRecording={isRecording}
                   onTranscribeClipAudio={async () => {
                     if (videoSource?.url) {
                       await runAudioTranscription(videoSource.url, videoSource.title, duration);
@@ -1069,9 +1401,12 @@ export default function App() {
               onChangeTakeVolume={handleChangeTakeVolume}
               onChangeTakeEffect={handleChangeTakeEffect}
               onDeleteTake={handleDeleteTake}
+              onUpdateTakeOffset={handleUpdateTakeOffset}
               scriptLines={scriptData.lines}
-              videoVolume={videoVolume}
+              videoVolume={effectiveVideoVolume}
               onVideoVolumeChange={setVideoVolume}
+              originalAudioMode={originalAudioMode}
+              onChangeOriginalAudioMode={setOriginalAudioMode}
               isRecording={isRecording}
             />
 
@@ -1132,7 +1467,7 @@ export default function App() {
         audioTakes={audioTakes}
         characters={characters}
         players={players}
-        videoVolume={videoVolume}
+        videoVolume={effectiveVideoVolume}
       />
 
       {/* Active Tab Recording Modal */}
