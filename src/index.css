@@ -77,3 +77,46 @@
 .animate-scale-in {
   animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+@keyframes gradientSlide {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(2deg);
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 25px -5px rgba(249, 115, 22, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 45px 5px rgba(245, 158, 11, 0.6);
+  }
+}
+
+.animate-gradient-slide {
+  background-size: 200% 200%;
+  animation: gradientSlide 4s ease infinite;
+}
+
+.animate-float-slow {
+  animation: floatSlow 5s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 3s ease-in-out infinite;
+}

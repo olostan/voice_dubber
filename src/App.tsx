@@ -36,21 +36,46 @@ import { Soundboard } from './components/Soundboard';
 import { ScriptPrompter } from './components/ScriptPrompter';
 import { ClipSelector } from './components/ClipSelector';
 import { AiJudgeModal } from './components/AiJudgeModal';
-import { ExportModal } from './components/ExportModal';
+import { ShowtimeModal } from './components/ShowtimeModal';
+import { ShareModal } from './components/ShareModal';
+import { PrivacyPolicyModal } from './components/PrivacyPolicyModal';
+import { UploadProgressModal, UploadState } from './components/UploadProgressModal';
 import { WelcomeCapturePrompt } from './components/WelcomeCapturePrompt';
 import { ActiveTabRecordingModal } from './components/ActiveTabRecordingModal';
 import { MyProjectsModal } from './components/MyProjectsModal';
+import { HomePage } from './components/HomePage';
 import { RotateCcw, Mic, CheckCircle2, ChevronRight, Volume2, Sparkles, UserCheck } from 'lucide-react';
 import { saveDubSession, loadDubSession, clearDubSession } from './utils/persistence';
 import { AuthUserProfile, signInWithGoogle, signOutUser, subscribeToAuthChanges } from './utils/auth';
-import { CloudProjectPayload, saveProjectToCloud, loadProjectFromCloud } from './utils/cloudSync';
+import { CloudProjectPayload, saveProjectToCloud, loadProjectFromCloud, uploadProjectMedia } from './utils/cloudSync';
 
 export default function App() {
+  // Navigation View: 'home' landing page or 'studio' working DAW workspace
+  const [currentView, setCurrentView] = useState<'home' | 'studio'>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.replace(/^#/, '');
+    const isViewRoute = window.location.pathname.startsWith('/view');
+    return params.get('project') || hash || isViewRoute ? 'studio' : 'home';
+  });
+
   // Modals
   const [isAiJudgeOpen, setIsAiJudgeOpen] = useState(false);
-  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isShowtimeOpen, setIsShowtimeOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
+  const [privacyInitialTab, setPrivacyInitialTab] = useState<'privacy' | 'terms' | 'ai' | 'copyright'>('privacy');
   const [isMyProjectsOpen, setIsMyProjectsOpen] = useState(false);
   const [isSavingToCloud, setIsSavingToCloud] = useState(false);
+
+  // Cloud Upload Progress & Auto-Retry State
+  const [uploadState, setUploadState] = useState<UploadState>({
+    isOpen: false,
+    phase: 'preparing',
+    percent: 0,
+    loadedBytes: 0,
+    totalBytes: 0,
+    message: '',
+  });
 
   // Google User Authentication State
   const [user, setUser] = useState<AuthUserProfile | null>(null);
@@ -72,7 +97,7 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [videoVolume, setVideoVolume] = useState<number>(0.8);
-  const [originalAudioMode, setOriginalAudioMode] = useState<OriginalAudioMode>('duck_10');
+  const [originalAudioMode, setOriginalAudioMode] = useState<OriginalAudioMode>('duck_5');
   const animFrameRef = useRef<number | null>(null);
   const lastPlayTimeRef = useRef<number>(0);
 
@@ -162,16 +187,23 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
     (async () => {
-      // Check if URL has ?project=<id>
+      // Check if URL has ?project=<id> or /view#<id> or #<id>
       const params = new URLSearchParams(window.location.search);
-      const projectId = params.get('project');
+      let projectId = params.get('project');
+      const hash = window.location.hash.replace(/^#/, '');
+      if (!projectId && hash) {
+        projectId = hash.replace(/^view#?/, '').replace(/^\//, '') || null;
+      }
 
       if (projectId) {
         try {
           const cloudProject = await loadProjectFromCloud(projectId);
           if (isMounted && cloudProject) {
-            handleSelectCloudProject(cloudProject);
+            await handleSelectCloudProject(cloudProject);
             setIsLoadedFromStorage(true);
+            if (window.location.pathname.startsWith('/view') || window.location.hash.includes('view')) {
+              setIsShowtimeOpen(true);
+            }
             return;
           }
         } catch {
@@ -314,6 +346,24 @@ export default function App() {
   // Save Current Project to Cloud and Update Browser URL
   const handleSaveCurrentToCloud = async () => {
     setIsSavingToCloud(true);
+    const totalBytesEst =
+      (currentVideoBlob?.size || 0) +
+      audioTakes.reduce((sum, take) => sum + (take.audioBlob?.size || 0), 0);
+
+    setUploadState({
+      isOpen: true,
+      phase: 'preparing',
+      percent: 5,
+      loadedBytes: 0,
+      totalBytes: totalBytesEst > 0 ? totalBytesEst : 1024,
+      message: 'Packaging scene metadata and preparing cloud storage...',
+      attempt: 1,
+      maxAttempts: 3,
+      error: null,
+      onRetry: handleSaveCurrentToCloud,
+      onCancel: () => setUploadState((prev) => ({ ...prev, isOpen: false })),
+    });
+
     try {
       const payload: CloudProjectPayload = {
         id: currentCloudProjectId || undefined,
@@ -329,33 +379,82 @@ export default function App() {
       };
       const { shareId, shareUrl } = await saveProjectToCloud(payload);
 
+      // Upload video and dubbed takes to Cloud Storage if available with live progress
+      if (currentVideoBlob || audioTakes.length > 0) {
+        try {
+          const mediaRes = await uploadProjectMedia(
+            shareId,
+            currentVideoBlob,
+            audioTakes,
+            (info) => {
+              setUploadState((prev) => ({
+                ...prev,
+                ...info,
+                isOpen: true,
+              }));
+            }
+          );
+          if (mediaRes.videoUrl) {
+            setVideoSource((prev) => (prev ? { ...prev, url: mediaRes.videoUrl! } : null));
+          }
+        } catch (mediaErr: any) {
+          console.warn('Cloud Storage upload notice:', mediaErr);
+          setUploadState((prev) => ({
+            ...prev,
+            phase: 'error',
+            error: mediaErr.message || 'Media transfer was interrupted. Click below to retry.',
+            onRetry: handleSaveCurrentToCloud,
+          }));
+          return;
+        }
+      }
+
       // Update browser URL query params with the project ID
       const newUrl = new URL(window.location.href);
-      newUrl.searchParams.set('project', shareId);
+      newUrl.pathname = '/view';
+      newUrl.hash = shareId;
+      newUrl.searchParams.delete('project');
       window.history.pushState({ projectId: shareId }, '', newUrl.toString());
 
       setCurrentCloudProjectId(shareId);
       setHasUnsavedChanges(false);
 
       navigator.clipboard.writeText(shareUrl).catch(() => {});
-      setNotificationToast({
-        message: `☁️ Saved to Cloud! URL updated & share link copied to clipboard: ${shareUrl}`,
-        type: 'success',
-      });
-      setTimeout(() => setNotificationToast(null), 8000);
+
+      setUploadState((prev) => ({
+        ...prev,
+        phase: 'done',
+        percent: 100,
+        message: 'Saved & uploaded successfully! Share link ready.',
+      }));
+
+      setTimeout(() => {
+        setUploadState((prev) => ({ ...prev, isOpen: false }));
+        setNotificationToast({
+          message: `☁️ Saved & Uploaded to Cloud! Share link copied: ${shareUrl}`,
+          type: 'success',
+        });
+        setTimeout(() => setNotificationToast(null), 8000);
+      }, 700);
     } catch (err: any) {
+      setUploadState((prev) => ({
+        ...prev,
+        phase: 'error',
+        error: err.message || 'Failed to save project. Please check your network connection.',
+        onRetry: handleSaveCurrentToCloud,
+      }));
       setNotificationToast({
         message: `Cloud save notice: ${err.message || 'Saved to local session'}`,
         type: 'error',
       });
-      setTimeout(() => setNotificationToast(null), 6000);
+      setTimeout(() => setNotificationToast(null), 5000);
     } finally {
       setIsSavingToCloud(false);
     }
   };
 
   // Load a Cloud Project into Active Workspace and Update Browser URL
-  const handleSelectCloudProject = (project: CloudProjectPayload) => {
+  const handleSelectCloudProject = async (project: CloudProjectPayload) => {
     if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0)) {
       const confirmed = window.confirm(
         'You have unsaved changes in your current project. Do you want to discard them and load this cloud project?'
@@ -373,40 +472,35 @@ export default function App() {
       setCurrentCloudProjectId(pId);
     }
 
-    if (project.presetClipId) {
-      const matchingPreset = PRESET_CLIPS.find((p) => p.id === project.presetClipId);
-      if (matchingPreset) {
-        setPresetClip(matchingPreset);
-        setVideoSource(null);
-      } else {
-        const fallbackPreset = PRESET_CLIPS.find((p) => p.genre.toLowerCase() === project.genre?.toLowerCase()) || PRESET_CLIPS[0];
-        setPresetClip({
-          ...fallbackPreset,
-          id: project.presetClipId,
-          title: project.title || fallbackPreset.title,
-          description: project.synopsis || fallbackPreset.description,
-          duration: project.duration || 15,
-          defaultCharacters: project.characters || fallbackPreset.defaultCharacters,
-          defaultScript: (project.lines || []).map((l, i) => ({
-            speakerIndex: i % (project.characters?.length || 1),
-            startTime: l.startTime,
-            endTime: l.endTime,
-            text: l.text,
-            cue: l.cue || '',
-          })),
-        });
-        setVideoSource(null);
-      }
-    } else {
-      // If project was captured from tab/uploaded without a preset ID, generate an interactive canvas scene
-      const fallbackPreset = PRESET_CLIPS.find((p) => p.genre.toLowerCase() === project.genre?.toLowerCase()) || PRESET_CLIPS[0];
-      setPresetClip({
-        ...fallbackPreset,
-        id: `custom-${pId || Date.now()}`,
-        title: project.title || fallbackPreset.title,
-        description: project.synopsis || fallbackPreset.description,
+    // Check if this browser has locally cached video & dubbed audio takes for this project ID
+    const localCached = pId ? await loadDubSession(pId) : null;
+
+    // 1. Resolve Video Source (Cloud Storage URL > Local IndexedDB Cache > Studio Soundstage)
+    if (project.videoUrl) {
+      setVideoSource({
+        type: 'upload',
+        url: project.videoUrl,
+        title: project.title || 'Dub Video',
         duration: project.duration || 15,
-        defaultCharacters: project.characters || fallbackPreset.defaultCharacters,
+        width: 1280,
+        height: 720,
+        hasAudioTrack: true,
+      });
+      setPresetClip(null);
+    } else if (localCached && localCached.videoSource) {
+      setVideoSource(localCached.videoSource);
+      setCurrentVideoBlob(localCached.videoBlob);
+      setPresetClip(localCached.presetClip);
+    } else {
+      // Soundstage canvas fallback (NOT the cat)
+      setPresetClip({
+        id: `custom-${pId || Date.now()}`,
+        title: project.title || 'Dubbing Soundstage',
+        genre: project.genre || 'Dubbing Studio',
+        duration: project.duration || 15,
+        description: project.synopsis || 'Recorded dialogue scene ready for dubbing.',
+        renderType: 'studio',
+        defaultCharacters: project.characters || [],
         defaultScript: (project.lines || []).map((l, i) => ({
           speakerIndex: i % (project.characters?.length || 1),
           startTime: l.startTime,
@@ -417,27 +511,61 @@ export default function App() {
       });
       setVideoSource(null);
     }
-    setDuration(project.duration || 15);
+
+    // 2. Resolve Audio Takes (Cloud Storage Takes > Local Takes > Empty for Fresh Recording)
+    if (project.takes && project.takes.length > 0) {
+      const restoredCloudTakes: AudioTake[] = project.takes.map((t) => ({
+        id: t.id,
+        playerId: t.playerId,
+        characterId: t.characterId,
+        audioBlob: new Blob([]),
+        audioUrl: t.audioUrl,
+        duration: t.duration,
+        startTimeOffset: t.startTimeOffset,
+        volume: t.volume ?? 1.0,
+        muted: Boolean(t.muted),
+        solo: Boolean(t.solo),
+        effect: (t.effect as any) || 'none',
+        waveformData: t.waveformData,
+        vadSegments: t.vadSegments,
+        recordedAt: t.recordedAt || Date.now(),
+      }));
+      setAudioTakes(restoredCloudTakes);
+    } else if (localCached && localCached.audioTakes.length > 0) {
+      setAudioTakes(localCached.audioTakes);
+    } else {
+      setAudioTakes([]);
+    }
+
+    setCharacters(project.characters || localCached?.characters || []);
+    setPlayers(project.players || localCached?.players || []);
+    setScriptData(
+      project.lines && project.lines.length > 0
+        ? {
+            scriptTitle: project.title || 'Scene Dialogue',
+            synopsis: project.synopsis || '',
+            genre: project.genre || 'Custom',
+            characters: project.characters || [],
+            lines: project.lines || [],
+          }
+        : localCached?.scriptData || {
+            scriptTitle: 'Scene Dialogue',
+            synopsis: '',
+            genre: 'Custom',
+            characters: [],
+            lines: [],
+          }
+    );
+    setDuration(project.duration || localCached?.duration || 15);
     setCurrentTime(0);
-    setCharacters(project.characters || []);
     if (project.characters && project.characters.length > 0) {
       setActiveRecordingCharacterId(project.characters[0].id);
     }
-    if (project.players && project.players.length > 0) {
-      setPlayers(project.players);
-    }
-    setScriptData({
-      scriptTitle: project.title || 'Scene Dialogue',
-      synopsis: project.synopsis || '',
-      genre: project.genre || 'Custom',
-      characters: project.characters || [],
-      lines: project.lines || [],
-    });
-    setAudioTakes([]);
     setJudgeResult(null);
     setHasUnsavedChanges(false);
+    setCurrentView('studio');
     setNotificationToast({
-      message: `📂 Loaded cloud project "${project.title}". Ready for dubbing!`,
+      message: `📂 Loaded project "${project.title}". Ready for Showtime!`,
       type: 'success',
     });
     setTimeout(() => setNotificationToast(null), 5000);
@@ -456,6 +584,8 @@ export default function App() {
       return videoVolume;
     }
     switch (originalAudioMode) {
+      case 'duck_5':
+        return videoVolume * 0.05;
       case 'duck_10':
         return videoVolume * 0.10;
       case 'duck_25':
@@ -465,9 +595,9 @@ export default function App() {
       case 'keep':
         return videoVolume;
       case 'smart_duck':
-        return isSpeakingNow || isRecording ? videoVolume * 0.10 : videoVolume;
+        return isSpeakingNow || isRecording ? videoVolume * 0.05 : videoVolume;
       default:
-        return videoVolume * 0.10;
+        return videoVolume * 0.05;
     }
   })();
 
@@ -485,6 +615,7 @@ export default function App() {
     setCurrentVideoBlob(null);
     setDuration(clip.duration);
     setCurrentTime(0);
+    setCurrentView('studio');
 
     const newChars: Character[] = clip.defaultCharacters.map((c, i) => ({
       id: `char-${i + 1}`,
@@ -786,8 +917,43 @@ export default function App() {
     }
 
     // Start all unmuted audio takes at their synchronized positions
-    audioTakes.forEach((take) => {
-      if (take.muted || !take.audioBuffer) return;
+    audioTakes.forEach(async (take) => {
+      if (take.muted) return;
+
+      // When actively recording / re-recording a line, DO NOT play the old take being replaced!
+      if (targetRecordingLineRef.current) {
+        const lineStart = targetRecordingLineRef.current.startTime;
+        const lineEnd = targetRecordingLineRef.current.endTime;
+        const takeStart = take.startTimeOffset;
+        const takeEnd = takeStart + take.duration;
+        const overlapsLine = takeStart < (lineEnd + 0.15) && takeEnd > (lineStart - 0.15);
+        const matchesCharacter = take.characterId === targetRecordingLineRef.current.speakerId;
+        if (overlapsLine && matchesCharacter) {
+          return; // Silence old dub take being re-recorded so actor records cleanly
+        }
+      }
+
+      let buffer = take.audioBuffer;
+      if (!buffer) {
+        if (take.audioBlob && take.audioBlob.size > 0) {
+          try {
+            buffer = await blobToAudioBuffer(take.audioBlob);
+            take.audioBuffer = buffer;
+          } catch (e) {
+            console.warn('Failed to decode take audio buffer:', e);
+          }
+        } else if (take.audioUrl) {
+          try {
+            const res = await fetch(take.audioUrl);
+            const arrayBuf = await res.arrayBuffer();
+            buffer = await ctx.decodeAudioData(arrayBuf);
+            take.audioBuffer = buffer;
+          } catch (e) {
+            console.warn('Failed to stream take audio buffer from URL:', e);
+          }
+        }
+      }
+      if (!buffer) return;
 
       const takeStart = take.startTimeOffset;
       const takeEnd = takeStart + take.duration;
@@ -799,7 +965,7 @@ export default function App() {
 
         try {
           const sourceNode = ctx.createBufferSource();
-          sourceNode.buffer = take.audioBuffer;
+          sourceNode.buffer = buffer;
 
           const gainNode = ctx.createGain();
           gainNode.gain.setValueAtTime(take.volume, ctx.currentTime);
@@ -1410,13 +1576,21 @@ export default function App() {
     <div className="min-h-screen bg-[#0A0A0B] text-zinc-100 flex flex-col font-['Plus_Jakarta_Sans'] selection:bg-orange-500 selection:text-white">
       {/* Top Navigation Header */}
       <Header
+        currentView={currentView}
+        onGoHome={() => setCurrentView('home')}
+        onOpenStudio={() => setCurrentView('studio')}
         projectTitle={scriptData.scriptTitle}
         onRenameProject={(newTitle) => {
           setScriptData((prev) => ({ ...prev, scriptTitle: newTitle }));
           setHasUnsavedChanges(true);
         }}
         onOpenAiJudge={() => setIsAiJudgeOpen(true)}
-        onOpenExport={() => setIsExportOpen(true)}
+        onOpenShowtime={() => setIsShowtimeOpen(true)}
+        onOpenShare={() => setIsShareOpen(true)}
+        onOpenPrivacy={(tab) => {
+          setPrivacyInitialTab(tab || 'privacy');
+          setIsPrivacyOpen(true);
+        }}
         hasTakes={audioTakes.length > 0}
         hasVideoLoaded={Boolean(videoSource || presetClip)}
         user={user}
@@ -1453,132 +1627,81 @@ export default function App() {
           newUrl.searchParams.delete('project');
           window.history.pushState({}, '', newUrl.toString());
           setNotificationToast({
-            message: '🗑️ Cleared working project. Ready for a new video or preset.',
+            message: '🗑️ Cleared working project. Ready for a new video.',
             type: 'info',
           });
           setTimeout(() => setNotificationToast(null), 4000);
         }}
       />
 
-      {/* Main Studio Grid Content */}
-      <main className="flex-1 max-w-[1720px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col gap-6">
-        {/* Active Transcription Status or Notification Banner */}
-        {isTranscribingAudio && (
-          <div className="flex items-center gap-3 p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 shadow-xl shadow-amber-950/40 animate-pulse">
-            <div className="w-5 h-5 rounded-full border-2 border-amber-400 border-t-transparent animate-spin shrink-0" />
-            <div className="flex-1">
-              <p className="text-xs font-black uppercase tracking-wider text-amber-300">
-                AI Voice Recognition & Diarization in Progress
-              </p>
-              <p className="text-sm font-bold text-white mt-0.5">{transcribingStatus}</p>
-            </div>
-          </div>
-        )}
-
-        {notificationToast && !isTranscribingAudio && (
-          <div
-            className={`flex items-center justify-between gap-3 p-3.5 rounded-2xl border shadow-xl transition-all ${
-              notificationToast.type === 'success'
-                ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-200'
-                : notificationToast.type === 'error'
-                ? 'bg-red-950/50 border-red-500/50 text-red-200'
-                : 'bg-zinc-900 border-zinc-700 text-zinc-200'
-            }`}
-          >
-            <p className="text-xs md:text-sm font-semibold">{notificationToast.message}</p>
-            <button
-              onClick={() => setNotificationToast(null)}
-              className="text-xs font-bold opacity-75 hover:opacity-100 px-2 py-1 rounded bg-black/30"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Main Studio View: Welcome Screen OR Active Workspace */}
-        {!videoSource && !presetClip && scriptData.lines.length === 0 && characters.length === 0 ? (
-          <WelcomeCapturePrompt
-            onCaptureTab={handleCaptureTab}
-            onUploadVideo={handleUploadVideo}
-            onSelectPreset={handleSelectPreset}
-            isCapturing={isCapturingTab}
-          />
-        ) : (
-          <>
-            {/* Interactive Next Actor Queue & Continuity Banner */}
-            {nextPendingLine && !isRecording && (
-              <div
-                id="next-actor-prompter-banner"
-                className="bg-gradient-to-r from-amber-500/15 via-orange-500/15 to-amber-500/15 border-2 border-amber-500/60 rounded-3xl p-4 sm:p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2"
-              >
-                <div className="flex items-center gap-3.5 w-full md:w-auto">
-                  <div
-                    className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shadow-xl border border-white/30 shrink-0"
-                    style={{
-                      backgroundColor: characters.find((c) => c.id === nextPendingLine.speakerId)?.color || '#f59e0b',
-                    }}
-                  >
-                    {characters.find((c) => c.id === nextPendingLine.speakerId)?.avatarIcon || '🎭'}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/40 flex items-center gap-1">
-                        <Sparkles className="w-3 h-3" />
-                        Next Actor Up
-                      </span>
-                      <span className="text-sm font-black text-white">
-                        {players.find((p) => p.characterId === nextPendingLine.speakerId)?.name || nextPendingLine.speakerName}
-                        <span className="text-zinc-400 font-normal"> as </span>
-                        <span className="text-amber-300 font-extrabold">{nextPendingLine.speakerName}</span>
-                      </span>
-                      <span className="text-[11px] font-mono text-zinc-400 bg-zinc-950 px-2 py-0.5 rounded border border-zinc-800">
-                        Cue: {nextPendingLine.startTime.toFixed(1)}s - {nextPendingLine.endTime.toFixed(1)}s
-                      </span>
-                    </div>
-                    <p className="text-xs sm:text-sm font-bold text-zinc-100 mt-1 italic">
-                      "{nextPendingLine.text}"
-                      {nextPendingLine.cue && (
-                        <span className="text-amber-400/90 ml-2 not-italic font-medium text-xs">
-                          [{nextPendingLine.cue}]
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
-                  {lastCompletedLine && (
-                    <button
-                      onClick={() => handleRecordSpecificLine(lastCompletedLine)}
-                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/80 hover:border-zinc-600 transition-all shadow-sm"
-                      title="Re-record previous dialogue line"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Re-record (R)</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => handleRecordSpecificLine(nextPendingLine)}
-                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-xl shadow-orange-950/80 border border-orange-400/50 animate-pulse transition-all transform hover:scale-105"
-                  >
-                    <Mic className="w-4 h-4" />
-                    <span>Record Next Line (Space)</span>
-                  </button>
-                  <button
-                    onClick={() => setNextPendingLine(null)}
-                    className="p-2 text-zinc-500 hover:text-zinc-200 rounded-xl hover:bg-zinc-800 transition-colors"
-                    title="Dismiss prompt"
-                  >
-                    ✕
-                  </button>
-                </div>
+      {/* Main View: Animated Home Page OR Studio DAW Workspace */}
+      {currentView === 'home' ? (
+        <HomePage
+          onLaunchStudio={() => setCurrentView('studio')}
+          onCaptureTab={() => {
+            setCurrentView('studio');
+            handleCaptureTab();
+          }}
+          onUploadVideo={(e) => {
+            setCurrentView('studio');
+            handleUploadVideo(e);
+          }}
+          onOpenMyProjects={() => setIsMyProjectsOpen(true)}
+          onOpenPrivacy={(tab) => {
+            setPrivacyInitialTab(tab || 'privacy');
+            setIsPrivacyOpen(true);
+          }}
+          hasActiveProject={Boolean(videoSource || presetClip || scriptData.lines.length > 0)}
+        />
+      ) : (
+        <main className="flex-1 max-w-[1720px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col gap-6">
+          {/* Active Transcription Status or Notification Banner */}
+          {isTranscribingAudio && (
+            <div className="flex items-center gap-3 p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 shadow-xl shadow-amber-950/40 animate-pulse">
+              <div className="w-5 h-5 rounded-full border-2 border-amber-400 border-t-transparent animate-spin shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs font-black uppercase tracking-wider text-amber-300">
+                  AI Voice Recognition & Diarization in Progress
+                </p>
+                <p className="text-sm font-bold text-white mt-0.5">{transcribingStatus}</p>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Top Row: Video Player + Teleprompter Script */}
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-              {/* Main Video/Canvas Player (7 cols) */}
-              <div className="xl:col-span-7 flex flex-col gap-4">
+          {notificationToast && !isTranscribingAudio && (
+            <div
+              className={`flex items-center justify-between gap-3 p-3.5 rounded-2xl border shadow-xl transition-all ${
+                notificationToast.type === 'success'
+                  ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-200'
+                  : notificationToast.type === 'error'
+                  ? 'bg-red-950/50 border-red-500/50 text-red-200'
+                  : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+              }`}
+            >
+              <p className="text-xs md:text-sm font-semibold">{notificationToast.message}</p>
+              <button
+                onClick={() => setNotificationToast(null)}
+                className="text-xs font-bold opacity-75 hover:opacity-100 px-2 py-1 rounded bg-black/30 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Main Studio View: Welcome Screen OR Active Workspace */}
+          {!videoSource && !presetClip && scriptData.lines.length === 0 && characters.length === 0 ? (
+            <WelcomeCapturePrompt
+              onCaptureTab={handleCaptureTab}
+              onUploadVideo={handleUploadVideo}
+              onSelectPreset={handleSelectPreset}
+              isCapturing={isCapturingTab}
+            />
+          ) : (
+            <>
+              {/* Top Row: Video Player + Teleprompter Script */}
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+                {/* Main Video/Canvas Player (7 cols) */}
+                <div className="xl:col-span-7 flex flex-col gap-4">
                 <VideoCanvasPlayer
                   videoSource={videoSource}
                   presetClip={presetClip}
@@ -1732,10 +1855,8 @@ export default function App() {
             {/* Live Party Soundboard Row */}
             <Soundboard />
 
-            {/* Video Clip Library & Tab Capture Drawer */}
+            {/* Video Tab Capture Drawer */}
             <ClipSelector
-              selectedClipId={presetClip?.id || null}
-              onSelectPreset={handleSelectPreset}
               onCaptureTab={handleCaptureTab}
               onUploadVideo={handleUploadVideo}
               isCapturing={isCapturingTab}
@@ -1743,6 +1864,7 @@ export default function App() {
           </>
         )}
       </main>
+    )}
 
       {/* Modals */}
       <AiJudgeModal
@@ -1757,16 +1879,41 @@ export default function App() {
         isLoading={isJudgeLoading}
       />
 
-      <ExportModal
-        isOpen={isExportOpen}
-        onClose={() => setIsExportOpen(false)}
-        videoElement={videoElemRef.current}
+      {/* Showtime Theater Fullscreen Modal */}
+      <ShowtimeModal
+        isOpen={isShowtimeOpen}
+        onClose={() => setIsShowtimeOpen(false)}
+        videoSource={videoSource}
         presetClip={presetClip}
         duration={duration}
-        audioTakes={audioTakes}
+        currentTime={currentTime}
+        isPlaying={isPlaying}
+        onPlayPause={togglePlayPause}
+        onSeek={handleSeek}
+        scriptLines={scriptData.lines}
         characters={characters}
-        players={players}
         videoVolume={effectiveVideoVolume}
+        onVolumeChange={setVideoVolume}
+        projectTitle={scriptData.scriptTitle}
+        onOpenShare={() => setIsShareOpen(true)}
+      />
+
+      {/* Share Dub Modal */}
+      <ShareModal
+        isOpen={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
+        projectId={currentCloudProjectId}
+        projectTitle={scriptData.scriptTitle}
+        takesCount={audioTakes.length}
+        onSaveToCloud={handleSaveCurrentToCloud}
+        isSavingToCloud={isSavingToCloud}
+      />
+
+      {/* Privacy, Terms & AI Safety Policy Modal */}
+      <PrivacyPolicyModal
+        isOpen={isPrivacyOpen}
+        onClose={() => setIsPrivacyOpen(false)}
+        defaultTab={privacyInitialTab}
       />
 
       {/* User Cloud Projects Modal */}
@@ -1814,6 +1961,9 @@ export default function App() {
         hasAudio={activeCaptureSession?.hasAudio || false}
         onStop={handleStopTabCapture}
       />
+
+      {/* Cloud Upload Progress & Auto-Retry Modal */}
+      <UploadProgressModal uploadState={uploadState} />
     </div>
   );
 }

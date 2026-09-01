@@ -2,6 +2,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore, Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { getAuth, DecodedIdToken } from "firebase-admin/auth";
+import { getStorage } from "firebase-admin/storage";
 import express, { Request, Response } from "express";
 
 // Initialize Firebase Admin SDK (Google Cloud Application Default Credentials automatically attached)
@@ -10,7 +11,17 @@ if (getApps().length === 0) {
 }
 
 const app = express();
-app.use(express.json({ limit: "25mb" }));
+app.use(express.json({ limit: "50mb" }));
+
+const MEDIA_BUCKET_NAME = process.env.MEDIA_BUCKET || "fun-voice-dubber-media";
+
+function getMediaBucket() {
+  try {
+    return getStorage().bucket(MEDIA_BUCKET_NAME);
+  } catch {
+    return null;
+  }
+}
 
 // Lazy loader for Google GenAI SDK to ensure zero-lag instant container startup
 let genaiModule: typeof import("@google/genai") | null = null;
@@ -268,6 +279,97 @@ app.delete("/api/projects/:id", async (req: Request, res: Response) => {
   } catch (err: unknown) {
     console.error("Delete project error:", err);
     res.status(500).json({ error: getErrorMessage(err) || "Failed to delete project" });
+  }
+});
+
+// Upload Video & Vocal Takes Media to Cloud Storage
+app.post("/api/projects/:id/media", async (req: Request, res: Response) => {
+  try {
+    const projectId = req.params.id;
+    const { videoBase64, videoType, takes } = req.body as {
+      videoBase64?: string;
+      videoType?: string;
+      takes?: Array<{
+        id: string;
+        playerId: string;
+        characterId: string;
+        audioBase64?: string;
+        audioUrl?: string;
+        duration: number;
+        startTimeOffset: number;
+        volume?: number;
+        muted?: boolean;
+        solo?: boolean;
+        effect?: string;
+        waveformData?: number[];
+        vadSegments?: { start: number; end: number }[];
+        recordedAt?: number;
+      }>;
+    };
+
+    const bucket = getMediaBucket();
+    if (!bucket) {
+      res.status(500).json({ error: "Media storage bucket not configured" });
+      return;
+    }
+
+    let videoUrl: string | null = null;
+    if (videoBase64) {
+      const videoBuffer = Buffer.from(videoBase64, "base64");
+      const ext = (videoType && videoType.includes("mp4")) ? "mp4" : "webm";
+      const fileRef = bucket.file(`projects/${projectId}/video.${ext}`);
+      await fileRef.save(videoBuffer, {
+        contentType: videoType || "video/webm",
+        metadata: { cacheControl: "public, max-age=31536000" },
+      });
+      videoUrl = `https://storage.googleapis.com/${MEDIA_BUCKET_NAME}/projects/${projectId}/video.${ext}`;
+    }
+
+    const uploadedTakes: Array<any> = [];
+    if (Array.isArray(takes)) {
+      for (const take of takes) {
+        if (take.audioBase64) {
+          const audioBuffer = Buffer.from(take.audioBase64, "base64");
+          const audioFileRef = bucket.file(`projects/${projectId}/takes/${take.id}.wav`);
+          await audioFileRef.save(audioBuffer, {
+            contentType: "audio/wav",
+            metadata: { cacheControl: "public, max-age=31536000" },
+          });
+          uploadedTakes.push({
+            id: take.id,
+            playerId: take.playerId,
+            characterId: take.characterId,
+            audioUrl: `https://storage.googleapis.com/${MEDIA_BUCKET_NAME}/projects/${projectId}/takes/${take.id}.wav`,
+            duration: take.duration,
+            startTimeOffset: take.startTimeOffset,
+            volume: take.volume ?? 1.0,
+            muted: Boolean(take.muted),
+            solo: Boolean(take.solo),
+            effect: take.effect || "none",
+            waveformData: take.waveformData,
+            vadSegments: take.vadSegments,
+            recordedAt: take.recordedAt || Date.now(),
+          });
+        } else if (take.audioUrl) {
+          uploadedTakes.push(take);
+        }
+      }
+    }
+
+    // Merge media URLs into Firestore Project document
+    const db = getFirestoreDb();
+    if (db) {
+      const docRef = db.collection("projects").doc(projectId);
+      const updateData: Record<string, any> = { updatedAt: Date.now() };
+      if (videoUrl) updateData.videoUrl = videoUrl;
+      if (uploadedTakes.length > 0) updateData.takes = uploadedTakes;
+      await docRef.set(updateData, { merge: true });
+    }
+
+    res.json({ success: true, videoUrl, takes: uploadedTakes });
+  } catch (err: unknown) {
+    console.error("Upload project media error:", err);
+    res.status(500).json({ error: getErrorMessage(err) || "Failed to upload project media" });
   }
 });
 

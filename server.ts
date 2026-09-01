@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
+import { getStorage } from "firebase-admin/storage";
 
 dotenv.config();
 
@@ -269,6 +270,81 @@ async function startServer() {
     } catch (err: any) {
       console.error("Delete project error:", err);
       res.status(500).json({ error: err.message || "Failed to delete project" });
+    }
+  });
+
+  // Upload Video & Vocal Takes Media to Cloud Storage
+  app.post("/api/projects/:id/media", async (req, res) => {
+    try {
+      const projectId = req.params.id;
+      const { videoBase64, videoType, takes } = req.body;
+
+      const MEDIA_BUCKET_NAME = process.env.MEDIA_BUCKET || "fun-voice-dubber-media";
+      const bucket = getStorage().bucket(MEDIA_BUCKET_NAME);
+
+      let videoUrl: string | null = null;
+      if (videoBase64) {
+        const videoBuffer = Buffer.from(videoBase64, "base64");
+        const ext = (videoType && videoType.includes("mp4")) ? "mp4" : "webm";
+        const fileRef = bucket.file(`projects/${projectId}/video.${ext}`);
+        await fileRef.save(videoBuffer, {
+          contentType: videoType || "video/webm",
+          metadata: { cacheControl: "public, max-age=31536000" },
+        });
+        videoUrl = `https://storage.googleapis.com/${MEDIA_BUCKET_NAME}/projects/${projectId}/video.${ext}`;
+      }
+
+      const uploadedTakes: Array<any> = [];
+      if (Array.isArray(takes)) {
+        for (const take of takes) {
+          if (take.audioBase64) {
+            const audioBuffer = Buffer.from(take.audioBase64, "base64");
+            const audioFileRef = bucket.file(`projects/${projectId}/takes/${take.id}.wav`);
+            await audioFileRef.save(audioBuffer, {
+              contentType: "audio/wav",
+              metadata: { cacheControl: "public, max-age=31536000" },
+            });
+            uploadedTakes.push({
+              id: take.id,
+              playerId: take.playerId,
+              characterId: take.characterId,
+              audioUrl: `https://storage.googleapis.com/${MEDIA_BUCKET_NAME}/projects/${projectId}/takes/${take.id}.wav`,
+              duration: take.duration,
+              startTimeOffset: take.startTimeOffset,
+              volume: take.volume ?? 1.0,
+              muted: Boolean(take.muted),
+              solo: Boolean(take.solo),
+              effect: take.effect || "none",
+              waveformData: take.waveformData,
+              vadSegments: take.vadSegments,
+              recordedAt: take.recordedAt || Date.now(),
+            });
+          } else if (take.audioUrl) {
+            uploadedTakes.push(take);
+          }
+        }
+      }
+
+      const db = getFirestoreDb();
+      if (db) {
+        const docRef = db.collection("projects").doc(projectId);
+        const updateData: Record<string, any> = { updatedAt: Date.now() };
+        if (videoUrl) updateData.videoUrl = videoUrl;
+        if (uploadedTakes.length > 0) updateData.takes = uploadedTakes;
+        await docRef.set(updateData, { merge: true });
+      }
+
+      // Also update in-memory fallback cache
+      if (localProjectsCache.has(projectId)) {
+        const current = localProjectsCache.get(projectId);
+        if (videoUrl) current.videoUrl = videoUrl;
+        if (uploadedTakes.length > 0) current.takes = uploadedTakes;
+      }
+
+      res.json({ success: true, videoUrl, takes: uploadedTakes });
+    } catch (err: any) {
+      console.error("Upload project media error:", err);
+      res.status(500).json({ error: err.message || "Failed to upload project media" });
     }
   });
 

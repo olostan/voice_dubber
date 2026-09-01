@@ -34,7 +34,11 @@ export async function startTabOrScreenCapture(): Promise<TabCaptureSession> {
     }
   }
 
-  const recorder = new MediaRecorder(displayStream, { mimeType });
+  const recorder = new MediaRecorder(displayStream, {
+    mimeType,
+    videoBitsPerSecond: 1200000, // 1.2 Mbps efficient VP9/VP8 web compression (~4.5MB per 30s)
+    audioBitsPerSecond: 64000, // 64 kbps Opus audio compression
+  });
 
   recorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) {

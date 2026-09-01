@@ -4,7 +4,7 @@ export interface PresetClipInfo {
   genre: string;
   duration: number;
   description: string;
-  renderType: 'noir' | 'scifi' | 'kitchen' | 'dragon' | 'sports';
+  renderType: 'noir' | 'scifi' | 'kitchen' | 'dragon' | 'sports' | 'studio';
   defaultCharacters: {
     name: string;
     voiceStyle: string;
@@ -315,7 +315,7 @@ export function drawAnimatedScene(
     ctx.beginPath();
     ctx.arc(width * 0.78, height * 0.49, 10, 0, Math.PI * 2);
     ctx.fill();
-  } else {
+  } else if (type === 'dragon' || type === 'sports') {
     // Dragon & Knight Fantasy
     ctx.fillStyle = '#312e81';
     ctx.fillRect(0, 0, width, height);
@@ -379,6 +379,99 @@ export function drawAnimatedScene(
     ctx.moveTo(kX + 15, kY);
     ctx.lineTo(kX + 45, kY - 45);
     ctx.stroke();
+  } else if (type === 'studio') {
+    // Futuristic Dubbing Soundstage
+    ctx.fillStyle = '#090a0f';
+    ctx.fillRect(0, 0, width, height);
+
+    // Glowing Neon Grid Floor
+    ctx.strokeStyle = 'rgba(249, 115, 22, 0.15)';
+    ctx.lineWidth = 1;
+    const horizon = height * 0.55;
+    for (let x = 0; x <= width; x += 40) {
+      ctx.beginPath();
+      ctx.moveTo(x, height);
+      ctx.lineTo(width / 2 + (x - width / 2) * 0.2, horizon);
+      ctx.stroke();
+    }
+    for (let y = horizon; y <= height; y += 15) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+
+    // Dynamic Soundwave Bars in background
+    const barCount = 32;
+    const barWidth = width / (barCount * 1.5);
+    const wavePhase = time * 4;
+    for (let i = 0; i < barCount; i++) {
+      const bx = (width / barCount) * i + barWidth / 2;
+      const barHeight = Math.abs(Math.sin(wavePhase + i * 0.35)) * (height * 0.25) + 10;
+      const grad = ctx.createLinearGradient(0, horizon - barHeight, 0, horizon);
+      grad.addColorStop(0, '#f97316');
+      grad.addColorStop(0.5, '#f59e0b');
+      grad.addColorStop(1, '#ef4444');
+      ctx.fillStyle = grad;
+      ctx.fillRect(bx, horizon - barHeight, barWidth, barHeight);
+    }
+
+    // Dual Microphones & Spotlight
+    const m1X = width * 0.32;
+    const m2X = width * 0.68;
+    const mY = height * 0.72;
+
+    // Spotlights
+    const spotGrad1 = ctx.createRadialGradient(m1X, mY, 10, m1X, mY, 90);
+    spotGrad1.addColorStop(0, 'rgba(249, 115, 22, 0.35)');
+    spotGrad1.addColorStop(1, 'rgba(249, 115, 22, 0)');
+    ctx.fillStyle = spotGrad1;
+    ctx.beginPath();
+    ctx.arc(m1X, mY, 90, 0, Math.PI * 2);
+    ctx.fill();
+
+    const spotGrad2 = ctx.createRadialGradient(m2X, mY, 10, m2X, mY, 90);
+    spotGrad2.addColorStop(0, 'rgba(14, 165, 233, 0.35)');
+    spotGrad2.addColorStop(1, 'rgba(14, 165, 233, 0)');
+    ctx.fillStyle = spotGrad2;
+    ctx.beginPath();
+    ctx.arc(m2X, mY, 90, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Actor 1 Podium & Mic
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(m1X - 25, mY + 20, 50, height - (mY + 20));
+    ctx.fillStyle = '#f43f5e';
+    ctx.beginPath();
+    ctx.arc(m1X, mY - 10 + Math.sin(time * 3) * 3, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px Outfit, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🎙️', m1X, mY - 4 + Math.sin(time * 3) * 3);
+
+    // Actor 2 Podium & Mic
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(m2X - 25, mY + 20, 50, height - (mY + 20));
+    ctx.fillStyle = '#0ea5e9';
+    ctx.beginPath();
+    ctx.arc(m2X, mY - 10 + Math.cos(time * 3) * 3, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('🎙️', m2X, mY - 4 + Math.cos(time * 3) * 3);
+
+    // Soundstage Header Badge
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.strokeStyle = '#f97316';
+    ctx.lineWidth = 2;
+    const badgeW = Math.min(width * 0.6, 320);
+    const badgeH = 40;
+    const badgeX = (width - badgeW) / 2;
+    ctx.strokeRect(badgeX, 20, badgeW, badgeH);
+    ctx.fillRect(badgeX, 20, badgeW, badgeH);
+    ctx.fillStyle = '#f97316';
+    ctx.font = 'bold 13px Outfit, sans-serif';
+    ctx.fillText('🎙️ DUBBING SOUNDSTAGE', width / 2, 45);
   }
 
   ctx.restore();

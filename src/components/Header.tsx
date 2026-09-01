@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Film, Sparkles, Plus, Mic, Folder, CloudUpload, LogOut, User, Edit3, Check } from 'lucide-react';
+import { Film, Sparkles, Plus, Mic, Folder, CloudUpload, LogOut, User, Edit3, Check, Home, Play } from 'lucide-react';
 import { AuthUserProfile } from '../utils/auth';
 
 interface HeaderProps {
+  currentView?: 'home' | 'studio';
+  onGoHome?: () => void;
+  onOpenStudio?: () => void;
   projectTitle?: string;
   onRenameProject?: (newTitle: string) => void;
   onOpenAiJudge: () => void;
-  onOpenExport: () => void;
+  onOpenShowtime: () => void;
+  onOpenShare: () => void;
+  onOpenPrivacy: (tab?: 'privacy' | 'terms' | 'ai' | 'copyright') => void;
   hasTakes: boolean;
   hasVideoLoaded?: boolean;
   onResetClip?: () => void;
@@ -19,10 +24,15 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  currentView = 'studio',
+  onGoHome,
+  onOpenStudio,
   projectTitle = 'Scene Dialogue',
   onRenameProject,
   onOpenAiJudge,
-  onOpenExport,
+  onOpenShowtime,
+  onOpenShare,
+  onOpenPrivacy,
   hasTakes,
   hasVideoLoaded = false,
   onResetClip,
@@ -52,69 +62,97 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header id="app-header" className="border-b border-zinc-800/80 bg-[#121215]/95 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-6 py-2.5">
       <div className="max-w-[1720px] mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
-        {/* Left: Brand & Editable Project Title */}
+        {/* Left: Interactive Brand & Editable Project Title */}
         <div className="flex items-center gap-3.5 w-full md:w-auto justify-between md:justify-start">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-950/40 text-white font-black text-lg shrink-0">
+          <button
+            id="brand-home-btn"
+            onClick={onGoHome}
+            className="flex items-center gap-2.5 group text-left cursor-pointer focus:outline-none"
+            title="Go to Fun Voice Dubber Home"
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-orange-600 via-amber-500 to-rose-500 flex items-center justify-center shadow-lg shadow-orange-950/40 text-white font-black text-lg shrink-0 group-hover:scale-105 group-hover:rotate-3 transition-transform duration-200">
               <Mic className="w-4 h-4 text-white" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base text-zinc-100 font-['Outfit'] tracking-tight">
-                  Voice <span className="text-orange-400">Dubber</span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-extrabold text-base tracking-tight font-['Outfit'] bg-clip-text text-transparent bg-gradient-to-r from-amber-400 via-orange-400 to-rose-400 animate-gradient-slide">
+                  Fun Voice Dubber
                 </span>
-                <span className="text-[9px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded-full">
-                  Studio
+                <span className="text-[9px] font-bold uppercase tracking-wider bg-orange-500/15 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded-full">
+                  {currentView === 'home' ? 'Home' : 'Studio'}
                 </span>
               </div>
             </div>
-          </div>
+          </button>
 
-          {/* Inline Project Title Rename Pill */}
-          <div className="flex items-center gap-1.5 bg-zinc-900/90 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 px-3 py-1 rounded-xl transition-all shadow-inner group">
-            <Film className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            {isEditingTitle ? (
-              <div className="flex items-center gap-1">
-                <input
-                  id="project-rename-input"
-                  type="text"
-                  value={titleInput}
-                  onChange={(e) => setTitleInput(e.target.value)}
-                  onBlur={handleSaveTitle}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSaveTitle();
-                    if (e.key === 'Escape') {
-                      setTitleInput(projectTitle);
-                      setIsEditingTitle(false);
-                    }
-                  }}
-                  autoFocus
-                  className="bg-zinc-950 text-white font-extrabold text-xs px-2 py-0.5 rounded border border-orange-500 focus:outline-none max-w-[200px]"
-                />
+          {/* Inline Project Title Rename Pill (shown in Studio mode) */}
+          {currentView === 'studio' && (
+            <div className="flex items-center gap-1.5 bg-zinc-900/90 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 px-3 py-1 rounded-xl transition-all shadow-inner group">
+              <Film className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              {isEditingTitle ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    id="project-rename-input"
+                    type="text"
+                    value={titleInput}
+                    onChange={(e) => setTitleInput(e.target.value)}
+                    onBlur={handleSaveTitle}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveTitle();
+                      if (e.key === 'Escape') {
+                        setTitleInput(projectTitle);
+                        setIsEditingTitle(false);
+                      }
+                    }}
+                    autoFocus
+                    className="bg-zinc-950 text-white font-extrabold text-xs px-2 py-0.5 rounded border border-orange-500 focus:outline-none max-w-[200px]"
+                  />
+                  <button
+                    onClick={handleSaveTitle}
+                    className="p-1 rounded bg-orange-500 hover:bg-orange-600 text-black font-bold cursor-pointer"
+                    title="Save title"
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
                 <button
-                  onClick={handleSaveTitle}
-                  className="p-1 rounded bg-orange-500 hover:bg-orange-600 text-black font-bold"
-                  title="Save title"
+                  id="rename-project-btn"
+                  onClick={() => setIsEditingTitle(true)}
+                  className="flex items-center gap-1.5 text-xs font-bold text-zinc-200 hover:text-white transition-colors text-left cursor-pointer"
+                  title="Click to rename project"
                 >
-                  <Check className="w-3 h-3" />
+                  <span className="max-w-[150px] sm:max-w-[220px] truncate">{projectTitle || 'Untitled Dub'}</span>
+                  <Edit3 className="w-3 h-3 text-zinc-500 group-hover:text-amber-400 transition-colors shrink-0" />
                 </button>
-              </div>
-            ) : (
-              <button
-                id="rename-project-btn"
-                onClick={() => setIsEditingTitle(true)}
-                className="flex items-center gap-1.5 text-xs font-bold text-zinc-200 hover:text-white transition-colors text-left"
-                title="Click to rename project"
-              >
-                <span className="max-w-[150px] sm:max-w-[220px] truncate">{projectTitle || 'Untitled Dub'}</span>
-                <Edit3 className="w-3 h-3 text-zinc-500 group-hover:text-amber-400 transition-colors shrink-0" />
-              </button>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Action Controls & Google Auth Profile */}
         <div className="flex items-center gap-2.5 w-full md:w-auto justify-end overflow-x-auto pb-1 md:pb-0">
+          {/* Home / Studio View Toggle */}
+          {currentView === 'home' ? (
+            <button
+              onClick={onOpenStudio}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-orange-500 to-amber-500 text-black shadow-md shadow-orange-950/40 hover:from-orange-600 hover:to-amber-600 transition-all cursor-pointer"
+              title="Enter Dub Studio"
+            >
+              <Play className="w-3.5 h-3.5 fill-black" />
+              <span>Enter Studio</span>
+            </button>
+          ) : (
+            <button
+              onClick={onGoHome}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 transition-all shadow-sm cursor-pointer"
+              title="Return to Home Page"
+            >
+              <Home className="w-3.5 h-3.5 text-orange-400" />
+              <span>Home</span>
+            </button>
+          )}
+
           {/* My Dubs Cloud Drawer */}
           <button
             id="my-dubs-btn"
@@ -157,26 +195,34 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="ai-judge-trigger-btn"
               onClick={onOpenAiJudge}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white shadow-lg shadow-orange-950/50 border border-orange-400/30 transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-amber-300 hover:text-amber-200 border border-zinc-800 transition-all cursor-pointer shadow-sm"
+              title="Get rated by the AI Comedy Critic"
             >
-              <Sparkles className="w-4 h-4 text-amber-200" />
-              <span>AI Judge</span>
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">AI Judge</span>
             </button>
           )}
 
-          {/* Export Video Button */}
+          {/* Share Dub Button */}
           <button
-            id="export-video-btn"
-            onClick={onOpenExport}
-            disabled={!hasTakes}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              hasTakes
-                ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-950/50 border border-orange-400/30'
-                : 'bg-zinc-800 text-zinc-500 border border-zinc-800 cursor-not-allowed'
-            }`}
+            id="share-dub-btn"
+            onClick={onOpenShare}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-zinc-800 transition-all cursor-pointer shadow-sm"
+            title="Share this dub via web link (/view#<id>)"
           >
-            <Film className="w-4 h-4" />
-            <span>Export Dub</span>
+            <CloudUpload className="w-3.5 h-3.5 text-orange-400" />
+            <span>Share</span>
+          </button>
+
+          {/* Showtime Theater Fullscreen Button */}
+          <button
+            id="showtime-btn"
+            onClick={onOpenShowtime}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-orange-500 via-amber-500 to-rose-500 hover:from-orange-600 hover:to-amber-600 text-black shadow-lg shadow-orange-950/60 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+            title="Watch performance in Showtime Theater"
+          >
+            <Play className="w-3.5 h-3.5 fill-black" />
+            <span>Showtime!</span>
           </button>
 
           {/* Google Sign In / User Profile */}

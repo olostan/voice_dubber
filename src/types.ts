@@ -30,7 +30,7 @@ export interface ScriptData {
 
 export type VoiceEffect = 'none' | 'villain' | 'chipmunk' | 'robot' | 'radio' | 'reverb' | 'megaphone';
 
-export type OriginalAudioMode = 'duck_10' | 'duck_25' | 'mute' | 'keep' | 'smart_duck';
+export type OriginalAudioMode = 'duck_5' | 'duck_10' | 'duck_25' | 'mute' | 'keep' | 'smart_duck';
 
 export interface Player {
   id: string;

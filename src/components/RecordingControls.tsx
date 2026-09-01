@@ -37,7 +37,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   onToggleCountIn,
   activeVoiceEffect,
   onChangeVoiceEffect,
-  originalAudioMode = 'duck_10',
+  originalAudioMode = 'duck_5',
   onChangeOriginalAudioMode,
   recordingLineText,
 }) => {
@@ -175,6 +175,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                 className="bg-transparent text-amber-300 font-bold focus:outline-none cursor-pointer"
                 title="Original Audio Treatment: Duck original audio so your voice dub is clear"
               >
+                <option value="duck_5" className="bg-zinc-900">🔉 Duck (5%)</option>
                 <option value="duck_10" className="bg-zinc-900">🔉 Duck (10%)</option>
                 <option value="duck_25" className="bg-zinc-900">🔉 Duck (25%)</option>
                 <option value="mute" className="bg-zinc-900">🔇 Mute (0%)</option>

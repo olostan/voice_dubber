@@ -475,10 +475,10 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
                 } ${
                   isRecordingThisLine
                     ? 'border-red-500 bg-red-950/50 shadow-xl shadow-red-950/60 ring-2 ring-red-500'
-                    : isNextPending
-                    ? 'border-amber-500 bg-amber-950/30 shadow-lg shadow-amber-950/40 ring-1 ring-amber-400'
                     : isCurrentlyActive
                     ? 'border-orange-500 bg-orange-950/40 shadow-lg shadow-orange-950/40 ring-2 ring-orange-500'
+                    : isNextPending && !isRecording
+                    ? 'border-amber-500/50 bg-zinc-950/90 shadow-md ring-1 ring-amber-500/30'
                     : isPast
                     ? 'border-zinc-800/80 bg-zinc-950/50 opacity-80 hover:opacity-100'
                     : 'border-zinc-800/90 bg-zinc-950/80'

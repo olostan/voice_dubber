@@ -75,24 +75,27 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-// Save complete working dub session to IndexedDB
-export async function saveDubSession(session: {
-  duration: number;
-  videoVolume: number;
-  originalAudioMode: OriginalAudioMode;
-  characters: Character[];
-  players: Player[];
-  scriptData: ScriptData;
-  activeRecordingCharacterId: string;
-  activeVoiceEffect: VoiceEffect;
-  latencyOffsetMs: number;
-  useCountIn: boolean;
-  judgeResult: JudgeResult | null;
-  presetClip: PresetClipInfo | null;
-  videoSource: VideoSource | null;
-  audioTakes: AudioTake[];
-  videoBlob?: Blob | null;
-}): Promise<void> {
+// Save complete working dub session to IndexedDB (supports global working session and per-project keying)
+export async function saveDubSession(
+  session: {
+    duration: number;
+    videoVolume: number;
+    originalAudioMode: OriginalAudioMode;
+    characters: Character[];
+    players: Player[];
+    scriptData: ScriptData;
+    activeRecordingCharacterId: string;
+    activeVoiceEffect: VoiceEffect;
+    latencyOffsetMs: number;
+    useCountIn: boolean;
+    judgeResult: JudgeResult | null;
+    presetClip: PresetClipInfo | null;
+    videoSource: VideoSource | null;
+    audioTakes: AudioTake[];
+    videoBlob?: Blob | null;
+  },
+  projectId?: string | null
+): Promise<void> {
   try {
     const db = await openDB();
 
@@ -159,10 +162,17 @@ export async function saveDubSession(session: {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
-      const putReq = store.put(sessionPayload, SESSION_KEY);
+      
+      // Save to global active session
+      store.put(sessionPayload, SESSION_KEY);
 
-      putReq.onsuccess = () => resolve();
-      putReq.onerror = () => reject(putReq.error);
+      // Also save to dedicated project cache if projectId exists
+      if (projectId) {
+        store.put(sessionPayload, `project_${projectId}`);
+      }
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
   } catch (err) {
     console.warn('Failed to save dub session to IndexedDB:', err);
@@ -170,7 +180,7 @@ export async function saveDubSession(session: {
 }
 
 // Load working dub session from IndexedDB and reconstruct URLs and AudioBuffers
-export async function loadDubSession(): Promise<{
+export async function loadDubSession(projectId?: string | null): Promise<{
   duration: number;
   videoVolume: number;
   originalAudioMode: OriginalAudioMode;
@@ -193,10 +203,24 @@ export async function loadDubSession(): Promise<{
     const saved: SavedDubSession | null = await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
-      const getReq = store.get(SESSION_KEY);
 
-      getReq.onsuccess = () => resolve(getReq.result || null);
-      getReq.onerror = () => reject(getReq.error);
+      if (projectId) {
+        const projReq = store.get(`project_${projectId}`);
+        projReq.onsuccess = () => {
+          if (projReq.result) {
+            resolve(projReq.result);
+          } else {
+            const fallbackReq = store.get(SESSION_KEY);
+            fallbackReq.onsuccess = () => resolve(fallbackReq.result || null);
+            fallbackReq.onerror = () => reject(fallbackReq.error);
+          }
+        };
+        projReq.onerror = () => reject(projReq.error);
+      } else {
+        const getReq = store.get(SESSION_KEY);
+        getReq.onsuccess = () => resolve(getReq.result || null);
+        getReq.onerror = () => reject(getReq.error);
+      }
     });
 
     if (!saved) return null;
