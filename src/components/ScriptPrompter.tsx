@@ -260,11 +260,16 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
                       )}
                     </div>
                   ) : (
-                    <div className="flex items-center gap-1.5 text-xs">
+                    <div className="flex items-center gap-1.5 text-xs flex-wrap">
                       <span className="font-extrabold text-white">{c.name}</span>
                       {assignedPlayer && (
                         <span className="text-[10px] text-zinc-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">
                           {assignedPlayer.name}
+                        </span>
+                      )}
+                      {assignedPlayer?.voiceEffect && assignedPlayer.voiceEffect !== 'none' && (
+                        <span className="text-[9px] font-mono font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded-full">
+                          FX: {assignedPlayer.voiceEffect}
                         </span>
                       )}
                       {c.voiceStyle && (
@@ -401,10 +406,11 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
       </div>
 
       {/* Script Lines List / Teleprompter Flow */}
-      <div className="flex flex-col gap-2.5 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+      <div className="flex flex-col gap-3 max-h-[460px] overflow-y-auto pr-1 custom-scrollbar">
         {hasLines ? (
           scriptData.lines.map((line) => {
             const char = characters.find((c) => c.id === line.speakerId);
+            const assignedPlayer = players.find((p) => p.characterId === line.speakerId);
             const isCurrentlyActive = currentTime >= line.startTime && currentTime <= line.endTime;
             const isPast = currentTime > line.endTime;
             const isRecordingThisLine = activeRecordingLineId === line.id && isRecording;
@@ -418,149 +424,167 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
                     onSeek(line.startTime);
                   }
                 }}
-                className={`p-3 rounded-xl border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-3 ${
-                  !isEditing ? 'cursor-pointer hover:shadow-md' : ''
+                className={`p-3.5 rounded-2xl border transition-all flex flex-col gap-2.5 ${
+                  !isEditing ? 'cursor-pointer hover:shadow-lg hover:border-zinc-700' : ''
                 } ${
                   isRecordingThisLine
-                    ? 'border-red-500 bg-red-950/40 shadow-xl shadow-red-950/60 ring-2 ring-red-500 scale-[1.01]'
+                    ? 'border-red-500 bg-red-950/50 shadow-xl shadow-red-950/60 ring-2 ring-red-500'
                     : isNextPending
                     ? 'border-amber-500 bg-amber-950/30 shadow-lg shadow-amber-950/40 ring-1 ring-amber-400'
                     : isCurrentlyActive
-                    ? 'border-orange-500 bg-orange-950/30 shadow-lg shadow-orange-950/40 ring-1 ring-orange-500 scale-[1.01]'
+                    ? 'border-orange-500 bg-orange-950/40 shadow-lg shadow-orange-950/40 ring-2 ring-orange-500'
                     : isPast
-                    ? 'border-zinc-800/60 bg-zinc-950/40 opacity-75 hover:opacity-100 hover:border-zinc-700'
-                    : 'border-zinc-800 bg-zinc-950/80 hover:border-zinc-700'
+                    ? 'border-zinc-800/80 bg-zinc-950/50 opacity-80 hover:opacity-100'
+                    : 'border-zinc-800/90 bg-zinc-950/80'
                 }`}
-                title={!isEditing ? `Click to jump to ${line.startTime.toFixed(1)}s` : undefined}
               >
-                {/* Left Column: Speaker & Timing */}
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <span
-                    className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
-                    style={{ backgroundColor: char?.color || '#f97316' }}
-                  />
-                  {isEditing ? (
-                    <select
-                      value={line.speakerId}
-                      onChange={(e) => {
-                        const sel = characters.find((c) => c.id === e.target.value);
-                        handleLineChange(line.id, 'speakerId', e.target.value);
-                        if (sel) handleLineChange(line.id, 'speakerName', sel.name);
-                      }}
-                      className="bg-zinc-900 border border-zinc-700 rounded-lg text-xs font-bold text-white px-2 py-1"
-                    >
-                      {characters.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-extrabold text-white">{line.speakerName}</span>
-                      {isRecordingThisLine && (
-                        <span className="text-[9px] font-black uppercase tracking-wider text-red-300 bg-red-500/30 px-1.5 py-0.5 rounded border border-red-500/50 animate-pulse">
-                          ● Recording
-                        </span>
-                      )}
-                      {isNextPending && (
-                        <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/30 px-1.5 py-0.5 rounded border border-amber-500/50 animate-pulse">
-                          👉 Next Up
+                {/* Header Row: Speaker Name & Timing on Left, Record/Actions on Right */}
+                <div className="flex items-center justify-between gap-2 w-full flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
+                      style={{ backgroundColor: char?.color || '#f97316' }}
+                    />
+                    {isEditing ? (
+                      <select
+                        value={line.speakerId}
+                        onChange={(e) => {
+                          const sel = characters.find((c) => c.id === e.target.value);
+                          handleLineChange(line.id, 'speakerId', e.target.value);
+                          if (sel) handleLineChange(line.id, 'speakerName', sel.name);
+                        }}
+                        className="bg-zinc-900 border border-zinc-700 rounded-lg text-xs font-bold text-white px-2 py-1"
+                      >
+                        {characters.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-extrabold text-white">{line.speakerName}</span>
+                        {assignedPlayer?.voiceEffect && assignedPlayer.voiceEffect !== 'none' && (
+                          <span className="text-[9px] font-mono font-bold text-amber-300 bg-zinc-900/90 px-1.5 py-0.5 rounded border border-zinc-800">
+                            FX: {assignedPlayer.voiceEffect}
+                          </span>
+                        )}
+                        {isRecordingThisLine && (
+                          <span className="text-[9px] font-black uppercase tracking-wider text-red-300 bg-red-500/30 px-2 py-0.5 rounded-full border border-red-500/50 animate-pulse">
+                            ● Recording
+                          </span>
+                        )}
+                        {isNextPending && (
+                          <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/30 px-2 py-0.5 rounded-full border border-amber-500/50 animate-pulse">
+                            👉 Next Up
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Timing Badge */}
+                    <div className="flex items-center gap-1 bg-zinc-900/90 px-2.5 py-0.5 rounded-lg border border-zinc-800 text-[11px] font-mono text-zinc-300">
+                      <Clock className="w-3 h-3 text-orange-400" />
+                      {isEditing ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={line.startTime}
+                            onChange={(e) => handleLineChange(line.id, 'startTime', parseFloat(e.target.value) || 0)}
+                            className="w-12 bg-zinc-950 border border-zinc-700 rounded px-1 text-white"
+                          />
+                          <span>-</span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={line.endTime}
+                            onChange={(e) => handleLineChange(line.id, 'endTime', parseFloat(e.target.value) || 0)}
+                            className="w-12 bg-zinc-950 border border-zinc-700 rounded px-1 text-white"
+                          />
+                        </div>
+                      ) : (
+                        <span>
+                          {line.startTime.toFixed(1)}s - {line.endTime.toFixed(1)}s
                         </span>
                       )}
                     </div>
-                  )}
+                  </div>
 
-                  {/* Timing Badge */}
-                  <div className="flex items-center gap-1 bg-zinc-900 px-2 py-0.5 rounded-lg border border-zinc-800 text-[10px] font-mono text-zinc-400">
-                    <Clock className="w-3 h-3 text-zinc-500" />
+                  {/* Actions / Record Button */}
+                  <div className="flex items-center gap-1.5">
                     {isEditing ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step="0.5"
-                          value={line.startTime}
-                          onChange={(e) => handleLineChange(line.id, 'startTime', parseFloat(e.target.value) || 0)}
-                          className="w-12 bg-zinc-950 border border-zinc-700 rounded px-1 text-white"
-                        />
-                        <span>-</span>
-                        <input
-                          type="number"
-                          step="0.5"
-                          value={line.endTime}
-                          onChange={(e) => handleLineChange(line.id, 'endTime', parseFloat(e.target.value) || 0)}
-                          className="w-12 bg-zinc-950 border border-zinc-700 rounded px-1 text-white"
-                        />
-                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteLine(line.id);
+                        }}
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors"
+                        title="Delete line"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     ) : (
-                      <span>
-                        {line.startTime.toFixed(1)}s - {line.endTime.toFixed(1)}s
-                      </span>
+                      onRecordLine && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRecordLine(line);
+                          }}
+                          disabled={isRecording}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md ${
+                            isRecordingThisLine
+                              ? 'bg-red-600 text-white animate-pulse'
+                              : isNextPending
+                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-zinc-950 ring-2 ring-amber-400 hover:from-amber-400 hover:to-orange-400'
+                              : 'bg-zinc-900 hover:bg-orange-500 text-zinc-200 hover:text-white border border-zinc-700 hover:border-orange-400'
+                          }`}
+                          title={`Record line for ${line.speakerName}`}
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                          <span>{isPast ? 'Re-record' : 'Record Line'}</span>
+                        </button>
+                      )
                     )}
                   </div>
                 </div>
 
-                {/* Center: Dialogue Text & Acting Cue */}
-                <div className="flex-1 flex flex-col gap-1 w-full">
+                {/* Main Body: Full Width Dialogue Text & Acting Cue */}
+                <div className="w-full">
                   {isEditing ? (
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1.5">
                       <input
                         type="text"
                         value={line.text}
                         onChange={(e) => handleLineChange(line.id, 'text', e.target.value)}
-                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1 text-xs text-white"
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-orange-500"
+                        placeholder="Dialogue line..."
                       />
                       <input
                         type="text"
-                        placeholder="Acting cue..."
+                        placeholder="Acting cue (e.g. whispered, sarcastic)..."
                         value={line.cue || ''}
                         onChange={(e) => handleLineChange(line.id, 'cue', e.target.value)}
-                        className="w-full bg-zinc-900/60 border border-zinc-800 rounded-lg px-2.5 py-0.5 text-[11px] text-amber-300 italic"
+                        className="w-full bg-zinc-900/60 border border-zinc-800 rounded-lg px-2.5 py-1 text-[11px] text-amber-300 italic focus:outline-none focus:border-amber-500"
                       />
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-zinc-100">"{line.text}"</span>
+                    <div className="flex flex-col gap-1">
+                      <p className={`text-sm sm:text-base font-bold leading-relaxed tracking-wide ${
+                        isCurrentlyActive ? 'text-orange-200' : 'text-zinc-100'
+                      }`}>
+                        "{line.text}"
+                      </p>
                       {line.cue && (
-                        <span className="text-[11px] font-medium text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/25 italic">
-                          {line.cue}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-semibold text-amber-300/90 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20 italic">
+                            🎭 [{line.cue}]
+                          </span>
+                        </div>
                       )}
                     </div>
                   )}
                 </div>
-
-                {/* Right: Actions */}
-                {isEditing ? (
-                  <button
-                    onClick={() => handleDeleteLine(line.id)}
-                    className="p-1 rounded text-zinc-500 hover:text-orange-400"
-                    title="Delete line"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                ) : (
-                  onRecordLine && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRecordLine(line);
-                      }}
-                      disabled={isRecording}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shrink-0 shadow-md ${
-                        isRecordingThisLine
-                          ? 'bg-red-600 text-white animate-pulse'
-                          : isNextPending
-                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-zinc-950 ring-2 ring-amber-400 hover:from-amber-400 hover:to-orange-400'
-                          : 'bg-zinc-900 hover:bg-orange-500 text-zinc-300 hover:text-white border border-zinc-700/80 hover:border-orange-400'
-                      }`}
-                      title={`Record / re-dub this line for ${line.speakerName}`}
-                    >
-                      <Mic className="w-3.5 h-3.5" />
-                      <span>{isPast ? 'Re-record' : 'Record Line'}</span>
-                    </button>
-                  )
-                )}
               </div>
             );
           })

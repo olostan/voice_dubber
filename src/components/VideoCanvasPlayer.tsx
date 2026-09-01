@@ -18,6 +18,9 @@ interface VideoCanvasPlayerProps {
   activeRecordingCharacterId: string | null;
   isRecording: boolean;
   countdown: number | null; // 3, 2, 1, or null
+  recordingLineText?: string | null;
+  recordingLineCue?: string | null;
+  recordingLineSpeaker?: string | null;
   videoVolume: number;
   onVolumeChange: (vol: number) => void;
   onCanvasRefReady?: (canvas: HTMLCanvasElement | null) => void;
@@ -39,6 +42,9 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
   activeRecordingCharacterId,
   isRecording,
   countdown,
+  recordingLineText,
+  recordingLineCue,
+  recordingLineSpeaker,
   videoVolume,
   onVolumeChange,
   onCanvasRefReady,
@@ -118,6 +124,13 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
     (c) => c.id === (activeLine?.speakerId || activeRecordingCharacterId)
   );
 
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    const ms = Math.floor((secs % 1) * 10);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms}`;
+  };
+
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
@@ -125,13 +138,6 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
     } else {
       document.exitFullscreen().catch(() => {});
     }
-  };
-
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
-    const ms = Math.floor((secs % 1) * 10);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms}`;
   };
 
   return (
@@ -186,16 +192,34 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
         )}
       </div>
 
-      {/* Big 3-2-1 Countdown Overlay */}
+      {/* Big 3-2-1 Countdown Overlay with Spoken Line Prompter */}
       {countdown !== null && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in">
-          <div className="text-center">
-            <div className="text-8xl md:text-9xl font-black text-orange-500 font-['Outfit'] animate-scale-pulse drop-shadow-[0_10px_30px_rgba(249,115,22,0.6)]">
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 backdrop-blur-md animate-fade-in p-6">
+          <div className="text-center max-w-xl w-full flex flex-col items-center">
+            <div className="text-7xl sm:text-9xl font-black text-orange-500 font-['Outfit'] animate-scale-pulse drop-shadow-[0_10px_30px_rgba(249,115,22,0.7)]">
               {countdown === 0 ? 'GO!' : countdown}
             </div>
-            <p className="text-sm md:text-base font-bold text-zinc-200 mt-2 uppercase tracking-widest">
-              {countdown === 0 ? '🎙️ Record your voice now!' : 'Get ready to dub...'}
+            <p className="text-xs sm:text-sm font-black text-zinc-300 mt-2 uppercase tracking-widest">
+              {countdown === 0 ? '🎙️ Record your voice now!' : 'Get ready to speak your line...'}
             </p>
+
+            {recordingLineText && (
+              <div className="mt-5 w-full bg-zinc-950/90 border-2 border-orange-500/90 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-2xl shadow-orange-950/80 animate-in zoom-in-95 backdrop-blur-xl">
+                <div className="flex items-center justify-center gap-2 mb-2 flex-wrap">
+                  <span className="text-xs font-black uppercase tracking-wider text-orange-400">
+                    📢 Line for {recordingLineSpeaker || 'Actor'}
+                  </span>
+                  {recordingLineCue && (
+                    <span className="text-[11px] font-semibold italic text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">
+                      🎭 [{recordingLineCue}]
+                    </span>
+                  )}
+                </div>
+                <p className="text-lg sm:text-2xl font-black text-white leading-snug tracking-wide">
+                  "{recordingLineText}"
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -204,10 +228,15 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
       <div className="relative z-20 px-4 pb-2">
         {activeLine ? (
           <div className="max-w-2xl mx-auto bg-zinc-950/90 backdrop-blur-md border-2 border-orange-500/80 rounded-2xl p-3.5 text-center shadow-2xl shadow-orange-950/50 animate-scale-in">
-            <div className="flex items-center justify-center gap-2 mb-1">
+            <div className="flex items-center justify-center gap-2 mb-1 flex-wrap">
               <span className="text-xs font-black uppercase tracking-wider text-orange-400">
                 {activeLine.speakerName}
               </span>
+              {activeCharacter?.voiceStyle && (
+                <span className="text-[10px] text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded-full border border-zinc-800">
+                  {activeCharacter.voiceStyle}
+                </span>
+              )}
               {activeLine.cue && (
                 <span className="text-[11px] font-semibold italic text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30">
                   {activeLine.cue}

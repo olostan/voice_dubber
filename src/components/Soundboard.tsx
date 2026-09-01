@@ -68,7 +68,7 @@ export const Soundboard: React.FC = () => {
       </div>
 
       {/* Grid of Sound Buttons */}
-      <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2">
+      <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2.5">
         {SOUNDS.map((sound) => {
           const isActive = activeSoundId === sound.id;
           return (
@@ -76,22 +76,22 @@ export const Soundboard: React.FC = () => {
               key={sound.id}
               id={`sfx-btn-${sound.type}`}
               onClick={() => triggerSound(sound)}
-              className={`flex flex-col items-center justify-center p-2.5 rounded-xl border bg-zinc-950/70 transition-all text-center relative overflow-hidden group ${
+              className={`flex flex-col items-center justify-center p-3 rounded-2xl border bg-zinc-950/80 transition-all text-center relative overflow-hidden group min-h-[84px] ${
                 sound.color
               } ${
                 isActive
-                  ? 'scale-95 bg-orange-500/20 border-orange-400 shadow-md shadow-orange-950 ring-2 ring-orange-400'
-                  : 'border-zinc-800 hover:border-zinc-700'
+                  ? 'scale-95 bg-orange-500/25 border-orange-400 shadow-lg shadow-orange-950 ring-2 ring-orange-400'
+                  : 'border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/80'
               }`}
             >
-              <span className="text-xl mb-1 transition-transform group-hover:scale-125 duration-150">
+              <span className="text-2xl mb-1 transition-transform group-hover:scale-125 duration-150">
                 {sound.emoji}
               </span>
-              <span className="text-[11px] font-bold text-zinc-200 truncate w-full">
+              <span className="text-[11px] font-extrabold text-zinc-200 leading-tight line-clamp-1 w-full text-center group-hover:text-white">
                 {sound.name}
               </span>
-              <span className="text-[9px] font-mono font-black text-zinc-500 bg-zinc-900 px-1.5 py-0.2 rounded mt-1 border border-zinc-800">
-                Key {sound.key}
+              <span className="text-[9px] font-mono font-black text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded-full mt-1.5 border border-zinc-800/80">
+                Key [{sound.key}]
               </span>
             </button>
           );

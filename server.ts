@@ -4,10 +4,39 @@ import os from "os";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { initializeApp, getApps } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 
 dotenv.config();
 
 const PORT = 3000;
+
+// Initialize Firebase Admin SDK (uses Google Cloud Application Default Credentials in production with zero hardcoded keys)
+if (getApps().length === 0) {
+  try {
+    initializeApp({
+      projectId: process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || "fun-voice-dubber",
+    });
+  } catch (err) {
+    console.warn("Firebase Admin initialized in offline mode:", err);
+  }
+}
+
+// In-memory fallback caches for local development when offline
+const localProjectsCache = new Map<string, any>();
+const localCommunityDubsCache: any[] = [];
+
+function getFirestoreDb() {
+  try {
+    if (getApps().length > 0) {
+      return getFirestore();
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -75,7 +104,261 @@ async function startServer() {
     res.json({
       status: "ok",
       hasGeminiKey: !!process.env.GEMINI_API_KEY,
+      firestoreEnabled: !!getFirestoreDb(),
     });
+  });
+
+  // Helper to extract and verify Firebase Auth ID Token from request
+  async function getAuthUser(req: express.Request) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return null;
+    }
+    const token = authHeader.split("Bearer ")[1]?.trim();
+    if (!token) return null;
+    try {
+      if (getApps().length > 0) {
+        return await getAuth().verifyIdToken(token);
+      }
+    } catch (err) {
+      console.warn("Auth token verification note:", (err as any)?.message || err);
+    }
+    return null;
+  }
+
+  // Get Projects for Current Authenticated User
+  app.get("/api/user/projects", async (req, res) => {
+    try {
+      const authUser = await getAuthUser(req);
+      const userId = authUser?.uid || (req.query.userId as string);
+
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized: Sign in required to view your dubs" });
+      }
+
+      const db = getFirestoreDb();
+      if (db) {
+        try {
+          const snapshot = await db
+            .collection("projects")
+            .where("authorId", "==", userId)
+            .get();
+
+          const items = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+          return res.json({ items });
+        } catch (dbErr) {
+          console.warn("Firestore user projects query warning:", dbErr);
+        }
+      }
+
+      // Local fallback
+      const userProjects = Array.from(localProjectsCache.values()).filter(
+        (p) => p.authorId === userId
+      );
+      res.json({ items: userProjects });
+    } catch (err: any) {
+      console.error("Fetch user projects error:", err);
+      res.status(500).json({ error: err.message || "Failed to fetch user projects" });
+    }
+  });
+
+  // Save / Create Project (attached to user if logged in)
+  app.post("/api/projects", async (req, res) => {
+    try {
+      const authUser = await getAuthUser(req);
+      const projectData = req.body;
+      const shareId = projectData.shareId || `dub-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+
+      const payload = {
+        ...projectData,
+        shareId,
+        authorId: authUser?.uid || projectData.authorId || null,
+        authorName: authUser?.name || projectData.authorName || (authUser ? "Director" : "Guest"),
+        authorEmail: authUser?.email || null,
+        createdAt: projectData.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      const db = getFirestoreDb();
+      if (db) {
+        try {
+          await db.collection("projects").doc(shareId).set(payload);
+        } catch (dbErr) {
+          console.warn("Firestore save warning, saving to local cache:", dbErr);
+          localProjectsCache.set(shareId, payload);
+        }
+      } else {
+        localProjectsCache.set(shareId, payload);
+      }
+
+      res.json({ success: true, shareId });
+    } catch (err: any) {
+      console.error("Save project error:", err);
+      res.status(500).json({ error: err.message || "Failed to save project" });
+    }
+  });
+
+  // Update Existing Project
+  app.put("/api/projects/:id", async (req, res) => {
+    try {
+      const authUser = await getAuthUser(req);
+      const shareId = req.params.id;
+      const updates = req.body;
+      const db = getFirestoreDb();
+
+      if (db) {
+        const docRef = db.collection("projects").doc(shareId);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists) {
+          const current = docSnap.data();
+          if (authUser && current?.authorId && current.authorId !== authUser.uid) {
+            return res.status(403).json({ error: "Forbidden: You do not have permission to edit this dub" });
+          }
+          await docRef.update({
+            ...updates,
+            updatedAt: Date.now(),
+          });
+          return res.json({ success: true });
+        }
+      }
+
+      if (localProjectsCache.has(shareId)) {
+        const current = localProjectsCache.get(shareId);
+        localProjectsCache.set(shareId, { ...current, ...updates, updatedAt: Date.now() });
+        return res.json({ success: true });
+      }
+
+      res.status(404).json({ error: "Project not found" });
+    } catch (err: any) {
+      console.error("Update project error:", err);
+      res.status(500).json({ error: err.message || "Failed to update project" });
+    }
+  });
+
+  // Delete Project
+  app.delete("/api/projects/:id", async (req, res) => {
+    try {
+      const authUser = await getAuthUser(req);
+      const shareId = req.params.id;
+      const db = getFirestoreDb();
+
+      if (db) {
+        const docRef = db.collection("projects").doc(shareId);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists) {
+          const current = docSnap.data();
+          if (authUser && current?.authorId && current.authorId !== authUser.uid) {
+            return res.status(403).json({ error: "Forbidden: You can only delete your own dub projects" });
+          }
+          await docRef.delete();
+          return res.json({ success: true });
+        }
+      }
+
+      if (localProjectsCache.has(shareId)) {
+        localProjectsCache.delete(shareId);
+        return res.json({ success: true });
+      }
+
+      res.status(404).json({ error: "Project not found" });
+    } catch (err: any) {
+      console.error("Delete project error:", err);
+      res.status(500).json({ error: err.message || "Failed to delete project" });
+    }
+  });
+
+  // Load Project by ID from Firestore (or local fallback)
+  app.get("/api/projects/:id", async (req, res) => {
+    try {
+      const shareId = req.params.id;
+      const db = getFirestoreDb();
+
+      if (db) {
+        try {
+          const docSnap = await db.collection("projects").doc(shareId).get();
+          if (docSnap.exists) {
+            return res.json(docSnap.data());
+          }
+        } catch (dbErr) {
+          console.warn("Firestore load warning, falling back to local cache:", dbErr);
+        }
+      }
+
+      if (localProjectsCache.has(shareId)) {
+        return res.json(localProjectsCache.get(shareId));
+      }
+
+      res.status(404).json({ error: "Project not found" });
+    } catch (err: any) {
+      console.error("Load project error:", err);
+      res.status(500).json({ error: err.message || "Failed to load project" });
+    }
+  });
+
+  // Publish Dubbing Performance & Score to Community Hall of Fame
+  app.post("/api/community-dubs", async (req, res) => {
+    try {
+      const dubData = req.body;
+      const dubId = `hall-${Date.now().toString(36)}`;
+      const payload = {
+        ...dubData,
+        id: dubId,
+        createdAt: Date.now(),
+      };
+
+      const db = getFirestoreDb();
+      if (db) {
+        try {
+          await db.collection("community_dubs").doc(dubId).set(payload);
+        } catch (dbErr) {
+          console.warn("Firestore community dubs save warning:", dbErr);
+          localCommunityDubsCache.unshift(payload);
+        }
+      } else {
+        localCommunityDubsCache.unshift(payload);
+      }
+
+      res.json({ success: true, dubId });
+    } catch (err: any) {
+      console.error("Publish community dub error:", err);
+      res.status(500).json({ error: err.message || "Failed to publish dub" });
+    }
+  });
+
+  // Get Recent Community Hall of Fame Dubs
+  app.get("/api/community-dubs", async (req, res) => {
+    try {
+      const limitCount = Math.min(20, parseInt(req.query.limit as string) || 6);
+      const db = getFirestoreDb();
+
+      if (db) {
+        try {
+          const snapshot = await db
+            .collection("community_dubs")
+            .orderBy("createdAt", "desc")
+            .limit(limitCount)
+            .get();
+
+          const items = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+          return res.json({ items });
+        } catch (dbErr) {
+          console.warn("Firestore community query warning:", dbErr);
+        }
+      }
+
+      res.json({ items: localCommunityDubsCache.slice(0, limitCount) });
+    } catch (err: any) {
+      console.error("Fetch community dubs error:", err);
+      res.status(500).json({ error: err.message || "Failed to fetch community dubs" });
+    }
   });
 
   // Generate Script & Dialogue Prompts
@@ -535,28 +818,9 @@ YOUR GOAL:
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    let networkIp: string | undefined;
-    try {
-      const interfaces = os.networkInterfaces();
-      for (const name of Object.keys(interfaces)) {
-        for (const iface of interfaces[name] || []) {
-          if (iface.family === "IPv4" && !iface.internal) {
-            networkIp = iface.address;
-            break;
-          }
-        }
-        if (networkIp) break;
-      }
-    } catch {
-      // ignore
-    }
-
-    console.log(`\n  Voice Dubber Server running at:`);
+  app.listen(PORT, "localhost", () => {
+    console.log(`\n  🎙️ Voice Dubber Studio running at:`);
     console.log(`  > Local:   http://localhost:${PORT}`);
-    if (networkIp) {
-      console.log(`  > Network: http://${networkIp}:${PORT}`);
-    }
     console.log();
   });
 }

@@ -670,3 +670,57 @@ function makeDistortionCurve(amount = 20) {
   }
   return curve;
 }
+
+let activePreviewSourceNode: AudioBufferSourceNode | null = null;
+
+export function stopTakePreview() {
+  if (activePreviewSourceNode) {
+    try {
+      activePreviewSourceNode.stop();
+      activePreviewSourceNode.disconnect();
+    } catch (e) {
+      // ignore
+    }
+    activePreviewSourceNode = null;
+  }
+}
+
+export function playTakePreviewWithEffect(
+  buffer: AudioBuffer,
+  effect: VoiceEffect,
+  volume = 1.0,
+  onEnded?: () => void
+): () => void {
+  stopTakePreview();
+
+  const ctx = getAudioContext();
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+
+  const gainNode = ctx.createGain();
+  gainNode.gain.setValueAtTime(volume, ctx.currentTime);
+
+  applyVoiceEffectChain(ctx, source, effect, gainNode);
+  gainNode.connect(ctx.destination);
+
+  activePreviewSourceNode = source;
+
+  source.onended = () => {
+    if (activePreviewSourceNode === source) {
+      activePreviewSourceNode = null;
+    }
+    if (onEnded) onEnded();
+  };
+
+  source.start(0);
+
+  return () => {
+    try {
+      source.stop();
+      source.disconnect();
+    } catch (e) {}
+    if (activePreviewSourceNode === source) {
+      activePreviewSourceNode = null;
+    }
+  };
+}

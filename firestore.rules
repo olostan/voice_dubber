@@ -1,0 +1,30 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Shared Dub Projects
+    match /projects/{projectId} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasAll(['title', 'createdAt', 'characters', 'lines'])
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() <= 200;
+      allow update, delete: if request.auth != null && (request.auth.uid == resource.data.authorId || resource.data.authorId == null);
+    }
+
+    // Community Hall of Fame Dubs & Scores
+    match /community_dubs/{dubId} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasAll(['scriptTitle', 'score', 'createdAt'])
+                    && request.resource.data.score is number
+                    && request.resource.data.score >= 0
+                    && request.resource.data.score <= 100;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.authorId;
+    }
+
+    // User preferences & saved takes
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

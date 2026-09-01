@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AudioTake, Character, OriginalAudioMode, Player, ScriptLine, VoiceEffect } from '../types';
-import { Volume2, VolumeX, Trash2, Mic, Eye, Radio, Sparkles, Layers, Scissors, MoveHorizontal } from 'lucide-react';
+import { Volume2, VolumeX, Trash2, Mic, Eye, Radio, Sparkles, Layers, Scissors, MoveHorizontal, Play, Square } from 'lucide-react';
+import { playTakePreviewWithEffect, stopTakePreview } from '../utils/audioEngine';
 
 interface MultiTrackTimelineProps {
   duration: number;
@@ -13,6 +14,8 @@ interface MultiTrackTimelineProps {
   audioTakes: AudioTake[];
   activeRecordingCharacterId: string | null;
   onSelectRecordingCharacter: (charId: string) => void;
+  selectedTakeId?: string | null;
+  onSelectTake?: (takeId: string | null) => void;
   onToggleMuteTake: (takeId: string) => void;
   onToggleSoloTake: (takeId: string) => void;
   onChangeTakeVolume: (takeId: string, vol: number) => void;
@@ -27,6 +30,16 @@ interface MultiTrackTimelineProps {
   isRecording: boolean;
 }
 
+const EFFECT_INFO: Record<VoiceEffect, { name: string; emoji: string; tag: string }> = {
+  none: { name: 'Clean', emoji: '🎙️', tag: 'Natural' },
+  villain: { name: 'Villain', emoji: '🦹‍♂️', tag: 'Deep FX' },
+  chipmunk: { name: 'Chipmunk', emoji: '🐿️', tag: 'Pitch Up' },
+  robot: { name: 'Robot', emoji: '🤖', tag: 'Ring Mod' },
+  radio: { name: 'Radio', emoji: '📻', tag: 'Walkie' },
+  megaphone: { name: 'Megaphone', emoji: '📢', tag: 'Distort' },
+  reverb: { name: 'Reverb', emoji: '🏛️', tag: 'Echo' },
+};
+
 export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
   duration,
   currentTime,
@@ -38,6 +51,8 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
   audioTakes,
   activeRecordingCharacterId,
   onSelectRecordingCharacter,
+  selectedTakeId: controlledSelectedTakeId,
+  onSelectTake,
   onToggleMuteTake,
   onToggleSoloTake,
   onChangeTakeVolume,
@@ -53,10 +68,20 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
 }) => {
   const effectiveDuration = Math.max(5, duration);
 
+  const [internalSelectedTakeId, setInternalSelectedTakeId] = useState<string | null>(null);
+  const activeSelectedTakeId = controlledSelectedTakeId !== undefined ? controlledSelectedTakeId : internalSelectedTakeId;
+
+  const [isAuditioning, setIsAuditioning] = useState(false);
+
   // Take drag state
   const [draggingTakeId, setDraggingTakeId] = useState<string | null>(null);
   const [dragOffsetPreview, setDragOffsetPreview] = useState<{ id: string; offset: number } | null>(null);
   const dragStartInfo = useRef<{ startX: number; initialOffset: number; timelineWidth: number; takeDuration: number } | null>(null);
+
+  const handleSelectTakeLocal = (takeId: string | null) => {
+    if (onSelectTake) onSelectTake(takeId);
+    setInternalSelectedTakeId(takeId);
+  };
 
   useEffect(() => {
     if (!draggingTakeId || !dragStartInfo.current) return;
@@ -117,26 +142,28 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
   for (let t = 0; t <= effectiveDuration; t += tickInterval) {
     rulerTicks.push(t);
   }
+  const selectedTake = audioTakes.find((t) => t.id === activeSelectedTakeId) || (audioTakes.length > 0 ? audioTakes[audioTakes.length - 1] : null);
+  const selectedTakeChar = selectedTake ? characters.find((c) => c.id === selectedTake.characterId) : null;
 
   return (
     <div id="multi-track-timeline" className="w-full bg-zinc-900/90 rounded-2xl border border-zinc-800/80 p-4 shadow-xl flex flex-col gap-3">
-      {/* Header Info & Track Stats & Quick Trim Actions */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pb-2 border-b border-zinc-800/80">
-        <div className="flex items-center gap-2 flex-wrap">
+      {/* Header Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
           <Layers className="w-4 h-4 text-orange-400" />
           <h3 className="text-sm font-extrabold text-white uppercase tracking-wider font-['Outfit']">
-            Multi-Track Voiceover Studio
+            Multi-Track Timeline (DAW)
           </h3>
-          <span className="text-xs text-zinc-400 bg-zinc-800 px-2.5 py-0.5 rounded-full border border-zinc-700">
-            {characters.length} Character Tracks • {audioTakes.length} Takes Recorded
+          <span className="text-xs text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded-full">
+            {audioTakes.length} {audioTakes.length === 1 ? 'Take' : 'Takes'}
           </span>
         </div>
 
+        {/* Timeline Mode & Crop Helpers */}
         <div className="flex items-center gap-3 text-xs text-zinc-400 flex-wrap">
-          {/* Quick Trim Buttons */}
           {(onTrimBefore || onTrimAfter) && (
-            <div className="flex items-center gap-1.5 bg-zinc-950 px-2 py-1 rounded-xl border border-zinc-800">
-              <Scissors className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+            <div className="flex items-center gap-1.5 bg-zinc-950 px-2.5 py-1 rounded-xl border border-zinc-800">
+              <Scissors className="w-3.5 h-3.5 text-orange-400" />
               <span className="text-[10px] uppercase font-bold text-zinc-500 mr-0.5">Crop:</span>
               {onTrimBefore && (
                 <button
@@ -144,7 +171,6 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                   onClick={() => onTrimBefore(currentTime)}
                   disabled={currentTime < 0.2 || currentTime >= duration - 0.5}
                   className="px-2 py-0.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/60 text-[11px] font-semibold transition-all disabled:opacity-30"
-                  title={`Remove everything before ${currentTime.toFixed(1)}s (0:00 -> ${currentTime.toFixed(1)}s)`}
                 >
                   Trim Start ({currentTime.toFixed(1)}s)
                 </button>
@@ -155,7 +181,6 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                   onClick={() => onTrimAfter(currentTime)}
                   disabled={currentTime < 0.5 || currentTime >= duration - 0.2}
                   className="px-2 py-0.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/60 text-[11px] font-semibold transition-all disabled:opacity-30"
-                  title={`Remove everything after ${currentTime.toFixed(1)}s (${currentTime.toFixed(1)}s -> ${duration.toFixed(1)}s)`}
                 >
                   Trim End ({currentTime.toFixed(1)}s)
                 </button>
@@ -173,6 +198,92 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Interactive Dub FX Audition & Modifier Bar */}
+      {selectedTake && (
+        <div className="bg-gradient-to-r from-amber-500/15 via-zinc-950 to-amber-500/15 border border-amber-500/40 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-lg animate-in fade-in slide-in-from-top-1">
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-base shadow-md border border-white/20 shrink-0"
+              style={{ backgroundColor: selectedTakeChar?.color || '#f59e0b' }}
+            >
+              {selectedTakeChar?.avatarIcon || '🎭'}
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-black text-white">{selectedTakeChar?.name || 'Dub Take'}</span>
+                <span className="text-[10px] font-mono text-amber-300 bg-zinc-900 px-2 py-0.5 rounded-full border border-zinc-800">
+                  {selectedTake.duration.toFixed(1)}s (at {selectedTake.startTimeOffset.toFixed(1)}s)
+                </span>
+                <span className="text-[10px] font-black text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30">
+                  {EFFECT_INFO[selectedTake.effect]?.emoji} {EFFECT_INFO[selectedTake.effect]?.name}
+                </span>
+              </div>
+              <p className="text-[10px] text-zinc-400 mt-0.5">Click any FX button below to hear your voice transformed!</p>
+            </div>
+          </div>
+
+          {/* Fast Effect Switching Buttons */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {(['none', 'villain', 'chipmunk', 'robot', 'radio', 'reverb', 'megaphone'] as VoiceEffect[]).map((fx) => {
+              const isFxActive = selectedTake.effect === fx;
+              return (
+                <button
+                  key={fx}
+                  id={`audition-fx-${fx}-btn`}
+                  onClick={() => {
+                    onChangeTakeEffect(selectedTake.id, fx);
+                    if (selectedTake.audioBuffer) {
+                      setIsAuditioning(true);
+                      playTakePreviewWithEffect(selectedTake.audioBuffer, fx, 1.0, () => setIsAuditioning(false));
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold transition-all flex items-center gap-1 border shadow-sm ${
+                    isFxActive
+                      ? 'bg-amber-500 text-black border-amber-400 shadow-amber-950 ring-2 ring-amber-400 font-black scale-105'
+                      : 'bg-zinc-900 text-zinc-300 hover:text-white border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800'
+                  }`}
+                  title={`Apply ${EFFECT_INFO[fx].name} and audition your voice`}
+                >
+                  <span>{EFFECT_INFO[fx].emoji}</span>
+                  <span className="hidden sm:inline">{EFFECT_INFO[fx].name}</span>
+                </button>
+              );
+            })}
+
+            {/* Audition Play / Stop Action */}
+            <button
+              id="audition-active-take-btn"
+              onClick={() => {
+                if (isAuditioning) {
+                  stopTakePreview();
+                  setIsAuditioning(false);
+                } else if (selectedTake.audioBuffer) {
+                  setIsAuditioning(true);
+                  playTakePreviewWithEffect(selectedTake.audioBuffer, selectedTake.effect, 1.0, () => setIsAuditioning(false));
+                }
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all border flex items-center gap-1.5 shadow-md ${
+                isAuditioning
+                  ? 'bg-orange-600 text-white border-orange-400 animate-pulse shadow-orange-950'
+                  : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-black font-black border-amber-400'
+              }`}
+            >
+              {isAuditioning ? (
+                <>
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                  <span>Stop</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Audition FX</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Timeline Grid */}
       <div className="flex flex-col border border-zinc-800/80 rounded-xl overflow-hidden bg-zinc-950/70">
@@ -347,58 +458,84 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
 
                 {/* Take Controls (if take recorded) */}
                 {latestTake ? (
-                  <div className="flex items-center justify-between gap-1 pt-1 border-t border-zinc-800/60">
-                    <div className="flex items-center gap-1">
-                      {/* Mute Take */}
-                      <button
-                        onClick={() => onToggleMuteTake(latestTake.id)}
-                        className={`p-1 rounded text-xs ${
-                          latestTake.muted
-                            ? 'bg-orange-500/20 text-orange-400'
-                            : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
-                        title="Mute track"
-                      >
-                        {latestTake.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-                      </button>
+                  <div className="flex flex-col gap-1 pt-1 border-t border-zinc-800/60">
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="flex items-center gap-1">
+                        {/* Mute Take */}
+                        <button
+                          onClick={() => onToggleMuteTake(latestTake.id)}
+                          className={`p-1 rounded text-xs ${
+                            latestTake.muted
+                              ? 'bg-orange-500/20 text-orange-400'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                          title="Mute track"
+                        >
+                          {latestTake.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                        </button>
 
-                      {/* Solo Take */}
-                      <button
-                        onClick={() => onToggleSoloTake(latestTake.id)}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                          latestTake.solo
-                            ? 'bg-amber-500 text-black'
-                            : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                        title="Solo this voice track"
-                      >
-                        S
-                      </button>
+                        {/* Solo Take */}
+                        <button
+                          onClick={() => onToggleSoloTake(latestTake.id)}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            latestTake.solo
+                              ? 'bg-amber-500 text-black'
+                              : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                          }`}
+                          title="Solo this voice track"
+                        >
+                          S
+                        </button>
 
-                      {/* Volume Slider */}
-                      <input
-                        type="range"
-                        min={0}
-                        max={2}
-                        step={0.1}
-                        value={latestTake.volume}
-                        onChange={(e) => onChangeTakeVolume(latestTake.id, parseFloat(e.target.value))}
-                        className="w-10 h-1 bg-zinc-700 rounded appearance-none accent-orange-400"
-                        title={`Volume: ${Math.round(latestTake.volume * 100)}%`}
-                      />
+                        {/* Volume Slider */}
+                        <input
+                          type="range"
+                          min={0}
+                          max={2}
+                          step={0.1}
+                          value={latestTake.volume}
+                          onChange={(e) => onChangeTakeVolume(latestTake.id, parseFloat(e.target.value))}
+                          className="w-10 h-1 bg-zinc-700 rounded appearance-none accent-orange-400"
+                          title={`Volume: ${Math.round(latestTake.volume * 100)}%`}
+                        />
+                      </div>
+
+                      {/* Delete Take */}
+                      <button
+                        onClick={() => onDeleteTake(latestTake.id)}
+                        className="p-1 rounded text-zinc-500 hover:text-orange-400 transition-colors"
+                        title="Delete this take"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
                     </div>
 
-                    {/* Delete Take */}
-                    <button
-                      onClick={() => onDeleteTake(latestTake.id)}
-                      className="p-1 rounded text-zinc-500 hover:text-orange-400 transition-colors"
-                      title="Delete this take"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                    {/* Attached Voice Effect Selector */}
+                    <div className="flex items-center justify-between gap-1 text-[10px]">
+                      <span className="text-zinc-500 font-bold uppercase">FX:</span>
+                      <select
+                        value={latestTake.effect}
+                        onChange={(e) => onChangeTakeEffect(latestTake.id, e.target.value as VoiceEffect)}
+                        className="bg-zinc-950 border border-zinc-700/80 text-amber-300 font-extrabold rounded-lg px-1.5 py-0.5 text-[10px] focus:outline-none cursor-pointer flex-1 truncate"
+                        title="Voice modifier applied to this audio take"
+                      >
+                        <option value="none">🎙️ Clean Natural</option>
+                        <option value="villain">🦹‍♂️ Movie Villain</option>
+                        <option value="chipmunk">🐿️ Chipmunk</option>
+                        <option value="robot">🤖 Cyber Robot</option>
+                        <option value="radio">📻 Walkie-Talkie</option>
+                        <option value="megaphone">📢 Megaphone</option>
+                        <option value="reverb">🏛️ Reverb</option>
+                      </select>
+                    </div>
                   </div>
                 ) : (
-                  <div className="text-[10px] text-zinc-400 italic">No take recorded yet</div>
+                  <div className="flex items-center justify-between text-[10px] text-zinc-500 italic pt-1 border-t border-zinc-800/40">
+                    <span>No take yet</span>
+                    <span className="text-[9px] font-mono text-zinc-400">
+                      FX: {EFFECT_INFO[assignedPlayer?.voiceEffect || 'none']?.emoji}
+                    </span>
+                  </div>
                 )}
               </div>
 
@@ -433,20 +570,26 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                 {latestTake && (
                   <div
                     onMouseDown={(e) => handleTakeMouseDown(e, latestTake)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectTakeLocal(latestTake.id);
+                    }}
                     style={{
                       left: `${(currentTakeOffset / effectiveDuration) * 100}%`,
                       width: `${(latestTake.duration / effectiveDuration) * 100}%`,
                     }}
-                    className={`absolute top-2 bottom-2 rounded-lg border flex items-center px-1 overflow-hidden transition-shadow select-none group/take ${
-                      onUpdateTakeOffset ? 'cursor-ew-resize hover:border-emerald-400' : ''
+                    className={`absolute top-2 bottom-2 rounded-lg border flex items-center px-1 overflow-hidden transition-all select-none group/take cursor-pointer ${
+                      onUpdateTakeOffset ? 'cursor-ew-resize hover:border-amber-400' : ''
                     } ${
                       isThisTakeDragging
                         ? 'border-emerald-400 bg-emerald-900/60 shadow-xl shadow-emerald-950/80 ring-2 ring-emerald-400 z-20 cursor-grabbing'
+                        : activeSelectedTakeId === latestTake.id
+                        ? 'border-amber-400 bg-amber-950/50 ring-2 ring-amber-400 shadow-xl shadow-amber-950/70 z-10'
                         : latestTake.muted
                         ? 'opacity-40 border-zinc-700 bg-zinc-900/50'
                         : 'border-emerald-500/50 bg-emerald-950/40 hover:bg-emerald-950/60'
                     }`}
-                    title="Click and drag left/right to move audio take on the timeline"
+                    title="Click to select & audition FX, or drag left/right to move audio take"
                   >
                     {/* Drag Handle Icon */}
                     {onUpdateTakeOffset && (
@@ -455,9 +598,17 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                       </div>
                     )}
 
+                    {/* Attached Voice Effect Badge on Waveform */}
+                    <div className="absolute right-1.5 top-1 bottom-1 flex items-center z-10 pointer-events-none">
+                      <span className="text-[9px] font-black uppercase tracking-wider bg-zinc-950/90 text-amber-300 px-1.5 py-0.5 rounded-full border border-amber-500/50 flex items-center gap-1 shadow-md backdrop-blur-xs">
+                        <span>{EFFECT_INFO[latestTake.effect]?.emoji || '🎙️'}</span>
+                        <span className="hidden md:inline font-bold text-zinc-100">{EFFECT_INFO[latestTake.effect]?.name || 'Clean'}</span>
+                      </span>
+                    </div>
+
                     {/* Render Waveform Bars */}
                     {latestTake.waveformData && latestTake.waveformData.length > 0 ? (
-                      <div className="w-full h-full flex items-center justify-between gap-[1px] pl-3 pointer-events-none">
+                      <div className="w-full h-full flex items-center justify-between gap-[1px] pl-3 pr-14 pointer-events-none">
                         {latestTake.waveformData.map((val, idx) => (
                           <div
                             key={idx}

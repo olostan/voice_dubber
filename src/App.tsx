@@ -39,13 +39,21 @@ import { AiJudgeModal } from './components/AiJudgeModal';
 import { ExportModal } from './components/ExportModal';
 import { WelcomeCapturePrompt } from './components/WelcomeCapturePrompt';
 import { ActiveTabRecordingModal } from './components/ActiveTabRecordingModal';
+import { MyProjectsModal } from './components/MyProjectsModal';
 import { RotateCcw, Mic, CheckCircle2, ChevronRight, Volume2, Sparkles, UserCheck } from 'lucide-react';
 import { saveDubSession, loadDubSession, clearDubSession } from './utils/persistence';
+import { AuthUserProfile, signInWithGoogle, signOutUser, subscribeToAuthChanges } from './utils/auth';
+import { CloudProjectPayload, saveProjectToCloud, loadProjectFromCloud } from './utils/cloudSync';
 
 export default function App() {
   // Modals
   const [isAiJudgeOpen, setIsAiJudgeOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isMyProjectsOpen, setIsMyProjectsOpen] = useState(false);
+  const [isSavingToCloud, setIsSavingToCloud] = useState(false);
+
+  // Google User Authentication State
+  const [user, setUser] = useState<AuthUserProfile | null>(null);
 
   // Active Clip & Video Source - starts empty so user is prompted to record from tab
   const [presetClip, setPresetClip] = useState<PresetClipInfo | null>(null);
@@ -72,6 +80,9 @@ export default function App() {
   const [targetRecordingLine, setTargetRecordingLine] = useState<ScriptLine | null>(null);
   const [nextPendingLine, setNextPendingLine] = useState<ScriptLine | null>(null);
   const [lastCompletedLine, setLastCompletedLine] = useState<ScriptLine | null>(null);
+  const [selectedTimelineTakeId, setSelectedTimelineTakeId] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const [currentCloudProjectId, setCurrentCloudProjectId] = useState<string | null>(null);
   const targetRecordingLineRef = useRef<ScriptLine | null>(null);
   const isRecordingRef = useRef<boolean>(false);
 
@@ -139,10 +150,35 @@ export default function App() {
   const [judgeResult, setJudgeResult] = useState<JudgeResult | null>(null);
   const [isJudgeLoading, setIsJudgeLoading] = useState(false);
 
-  // 1. Restore Working Dub Session from IndexedDB on initial mount
+  // 1. Subscribe to Google Auth changes
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges((currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Restore Working Dub Session from IndexedDB or URL Share Parameter on mount
   useEffect(() => {
     let isMounted = true;
     (async () => {
+      // Check if URL has ?project=<id>
+      const params = new URLSearchParams(window.location.search);
+      const projectId = params.get('project');
+
+      if (projectId) {
+        try {
+          const cloudProject = await loadProjectFromCloud(projectId);
+          if (isMounted && cloudProject) {
+            handleSelectCloudProject(cloudProject);
+            setIsLoadedFromStorage(true);
+            return;
+          }
+        } catch {
+          // fallback to local session
+        }
+      }
+
       try {
         const saved = await loadDubSession();
         if (isMounted && saved) {
@@ -184,7 +220,7 @@ export default function App() {
     };
   }, []);
 
-  // 2. Debounced Auto-Save Working Dub Session to IndexedDB
+  // 3. Debounced Auto-Save Working Dub Session to IndexedDB
   useEffect(() => {
     if (!isLoadedFromStorage) return;
     if (!videoSource && !presetClip && audioTakes.length === 0) return;
@@ -229,6 +265,147 @@ export default function App() {
     currentVideoBlob,
   ]);
 
+  // Warn before browser navigation or tab close when unsaved changes exist
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0 || videoSource || presetClip)) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges, audioTakes.length, scriptData.lines.length, videoSource, presetClip]);
+
+  // Google Sign-In & Sign-Out Handlers
+  const handleSignInWithGoogle = async () => {
+    try {
+      const profile = await signInWithGoogle();
+      if (profile) {
+        setUser(profile);
+        setNotificationToast({
+          message: `👋 Welcome, ${profile.displayName || profile.email}! Signed in with Google.`,
+          type: 'success',
+        });
+        setTimeout(() => setNotificationToast(null), 5000);
+      }
+    } catch (err: any) {
+      console.warn('Google sign in error:', err);
+      setNotificationToast({
+        message: err.message || 'Google sign in cancelled.',
+        type: 'info',
+      });
+      setTimeout(() => setNotificationToast(null), 5000);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOutUser();
+    setUser(null);
+    setNotificationToast({
+      message: 'Signed out of Google account.',
+      type: 'info',
+    });
+    setTimeout(() => setNotificationToast(null), 3000);
+  };
+
+  // Save Current Project to Cloud and Update Browser URL
+  const handleSaveCurrentToCloud = async () => {
+    setIsSavingToCloud(true);
+    try {
+      const payload: CloudProjectPayload = {
+        id: currentCloudProjectId || undefined,
+        title: scriptData.scriptTitle || 'Dubbed Scene',
+        synopsis: scriptData.synopsis,
+        genre: scriptData.genre,
+        duration,
+        characters,
+        lines: scriptData.lines,
+        players,
+        presetClipId: presetClip?.id || null,
+        authorName: user?.displayName || 'Creator',
+      };
+      const { shareId, shareUrl } = await saveProjectToCloud(payload);
+
+      // Update browser URL query params with the project ID
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.set('project', shareId);
+      window.history.pushState({ projectId: shareId }, '', newUrl.toString());
+
+      setCurrentCloudProjectId(shareId);
+      setHasUnsavedChanges(false);
+
+      navigator.clipboard.writeText(shareUrl).catch(() => {});
+      setNotificationToast({
+        message: `☁️ Saved to Cloud! URL updated & share link copied to clipboard: ${shareUrl}`,
+        type: 'success',
+      });
+      setTimeout(() => setNotificationToast(null), 8000);
+    } catch (err: any) {
+      setNotificationToast({
+        message: `Cloud save notice: ${err.message || 'Saved to local session'}`,
+        type: 'error',
+      });
+      setTimeout(() => setNotificationToast(null), 6000);
+    } finally {
+      setIsSavingToCloud(false);
+    }
+  };
+
+  // Load a Cloud Project into Active Workspace and Update Browser URL
+  const handleSelectCloudProject = (project: CloudProjectPayload) => {
+    if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0)) {
+      const confirmed = window.confirm(
+        'You have unsaved changes in your current project. Do you want to discard them and load this cloud project?'
+      );
+      if (!confirmed) return;
+    }
+
+    stopPlayback();
+
+    const pId = project.id || project.shareId || null;
+    if (pId) {
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.set('project', pId);
+      window.history.pushState({ projectId: pId }, '', newUrl.toString());
+      setCurrentCloudProjectId(pId);
+    }
+
+    if (project.presetClipId) {
+      const matchingPreset = PRESET_CLIPS.find((p) => p.id === project.presetClipId);
+      if (matchingPreset) {
+        setPresetClip(matchingPreset);
+        setVideoSource(null);
+      }
+    }
+    setDuration(project.duration || 15);
+    setCurrentTime(0);
+    setCharacters(project.characters || []);
+    if (project.characters && project.characters.length > 0) {
+      setActiveRecordingCharacterId(project.characters[0].id);
+    }
+    if (project.players && project.players.length > 0) {
+      setPlayers(project.players);
+    }
+    setScriptData({
+      scriptTitle: project.title || 'Scene Dialogue',
+      synopsis: project.synopsis || '',
+      genre: project.genre || 'Custom',
+      characters: project.characters || [],
+      lines: project.lines || [],
+    });
+    setAudioTakes([]);
+    setJudgeResult(null);
+    setHasUnsavedChanges(false);
+    setNotificationToast({
+      message: `📂 Loaded cloud project "${project.title}". URL updated!`,
+      type: 'success',
+    });
+    setTimeout(() => setNotificationToast(null), 5000);
+  };
+
   // Calculate Effective Video Volume with Selected Ducking Treatment
   const isSpeakingNow = audioTakes.some((take) => {
     if (take.muted) return false;
@@ -259,6 +436,12 @@ export default function App() {
 
   // Synchronize characters when preset changes
   const handleSelectPreset = (clip: PresetClipInfo) => {
+    if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0)) {
+      const confirmed = window.confirm(
+        'You have unsaved changes in your current project. Do you want to discard them and load this clip?'
+      );
+      if (!confirmed) return;
+    }
     stopPlayback();
     setPresetClip(clip);
     setVideoSource(null);
@@ -296,6 +479,12 @@ export default function App() {
     // Reset takes for fresh clip
     setAudioTakes([]);
     setJudgeResult(null);
+    setCurrentCloudProjectId(null);
+    setHasUnsavedChanges(false);
+
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.delete('project');
+    window.history.pushState({}, '', newUrl.toString());
   };
 
   // Audio Transcription & Diarization Engine
@@ -869,17 +1058,45 @@ export default function App() {
   // Start Standard Recording Dub Take (with 3-2-1 Metronome Lead-in)
   const handleStartRecording = async () => {
     stopPlayback();
-    setTargetRecordingLine(null);
+
+    // 1. If nextPendingLine exists, record that line
+    if (nextPendingLine) {
+      handleRecordSpecificLine(nextPendingLine);
+      return;
+    }
+
+    // 2. If targetRecordingLine is set, record it
+    if (targetRecordingLine) {
+      handleRecordSpecificLine(targetRecordingLine);
+      return;
+    }
+
+    // 3. Find closest matching script line for activeRecordingCharacterId near current playhead
+    const matchingLine = scriptData.lines.find(
+      (l) => l.speakerId === activeRecordingCharacterId && l.startTime >= currentTime - 0.5
+    ) || scriptData.lines.find(
+      (l) => l.speakerId === activeRecordingCharacterId
+    ) || (scriptData.lines.length > 0 ? scriptData.lines[0] : null);
+
+    if (matchingLine) {
+      handleRecordSpecificLine(matchingLine);
+      return;
+    }
+
+    // 4. Freestyle recording (no script lines)
+    const startPos = currentTime >= duration - 0.5 ? 0 : currentTime;
+    setCurrentTime(startPos);
+    if (videoElemRef.current) {
+      videoElemRef.current.currentTime = startPos + (videoSource?.trimStartOffset || 0);
+    }
 
     const startRecordingActual = async () => {
       setCountdown(null);
-      setCurrentTime(0);
-
       micRecorderRef.current = new MicTakeRecorder();
       await micRecorderRef.current.start((level) => setVuLevel(level));
 
       setIsRecording(true);
-      startPlayback(0);
+      startPlayback(startPos);
     };
 
     if (useCountIn) {
@@ -959,6 +1176,7 @@ export default function App() {
         const filtered = prev.filter((t) => t.characterId !== targetChar.id);
         return [...filtered, newTake];
       });
+      setHasUnsavedChanges(true);
 
       playSoundEffect('rimshot');
 
@@ -1000,6 +1218,7 @@ export default function App() {
     setAudioTakes((prev) =>
       prev.map((t) => (t.id === takeId ? { ...t, startTimeOffset: Math.max(0, newOffset) } : t))
     );
+    setHasUnsavedChanges(true);
   };
 
   // Toggle Mute / Solo / Volume / Delete Take handlers
@@ -1025,16 +1244,19 @@ export default function App() {
     setAudioTakes((prev) =>
       prev.map((t) => (t.id === takeId ? { ...t, volume } : t))
     );
+    setHasUnsavedChanges(true);
   };
 
   const handleChangeTakeEffect = (takeId: string, effect: VoiceEffect) => {
     setAudioTakes((prev) =>
       prev.map((t) => (t.id === takeId ? { ...t, effect } : t))
     );
+    setHasUnsavedChanges(true);
   };
 
   const handleDeleteTake = (takeId: string) => {
     setAudioTakes((prev) => prev.filter((t) => t.id !== takeId));
+    setHasUnsavedChanges(true);
   };
 
   // AI Script Generation with Gemini
@@ -1070,6 +1292,7 @@ export default function App() {
               cue: l.cue || '',
             })),
           });
+          setHasUnsavedChanges(true);
           playSoundEffect('gasp');
         }
       }
@@ -1154,7 +1377,19 @@ export default function App() {
         onOpenExport={() => setIsExportOpen(true)}
         hasTakes={audioTakes.length > 0}
         hasVideoLoaded={Boolean(videoSource || presetClip)}
+        user={user}
+        onSignInWithGoogle={handleSignInWithGoogle}
+        onSignOut={handleSignOut}
+        onOpenMyProjects={() => setIsMyProjectsOpen(true)}
+        onSaveToCloud={handleSaveCurrentToCloud}
+        isSavingToCloud={isSavingToCloud}
         onResetClip={() => {
+          if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0)) {
+            const confirmed = window.confirm(
+              'You have unsaved takes in your current dubbing project. Do you want to discard them and create a new project?'
+            );
+            if (!confirmed) return;
+          }
           stopPlayback();
           clearDubSession();
           setPresetClip(null);
@@ -1170,6 +1405,11 @@ export default function App() {
             characters: [],
             lines: [],
           });
+          setCurrentCloudProjectId(null);
+          setHasUnsavedChanges(false);
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('project');
+          window.history.pushState({}, '', newUrl.toString());
           setNotificationToast({
             message: '🗑️ Cleared working project. Ready for a new video or preset.',
             type: 'info',
@@ -1179,7 +1419,7 @@ export default function App() {
       />
 
       {/* Main Studio Grid Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 flex flex-col gap-6">
+      <main className="flex-1 max-w-[1720px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col gap-6">
         {/* Active Transcription Status or Notification Banner */}
         {isTranscribingAudio && (
           <div className="flex items-center gap-3 p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 shadow-xl shadow-amber-950/40 animate-pulse">
@@ -1294,9 +1534,9 @@ export default function App() {
             )}
 
             {/* Top Row: Video Player + Teleprompter Script */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
               {/* Main Video/Canvas Player (7 cols) */}
-              <div className="lg:col-span-7 flex flex-col gap-4">
+              <div className="xl:col-span-7 flex flex-col gap-4">
                 <VideoCanvasPlayer
                   videoSource={videoSource}
                   presetClip={presetClip}
@@ -1312,6 +1552,9 @@ export default function App() {
                   activeRecordingCharacterId={activeRecordingCharacterId}
                   isRecording={isRecording}
                   countdown={countdown}
+                  recordingLineText={targetRecordingLine?.text || nextPendingLine?.text || scriptData.lines.find((l) => l.speakerId === activeRecordingCharacterId)?.text || null}
+                  recordingLineCue={targetRecordingLine?.cue || nextPendingLine?.cue || scriptData.lines.find((l) => l.speakerId === activeRecordingCharacterId)?.cue || null}
+                  recordingLineSpeaker={targetRecordingLine?.speakerName || nextPendingLine?.speakerName || characters.find((c) => c.id === activeRecordingCharacterId)?.name || null}
                   videoVolume={effectiveVideoVolume}
                   onVolumeChange={setVideoVolume}
                   onCanvasRefReady={(canvas) => {
@@ -1345,21 +1588,28 @@ export default function App() {
               </div>
 
               {/* Right Column: AI Script & Prompter (5 cols) */}
-              <div className="lg:col-span-5 flex flex-col gap-4">
+              <div className="xl:col-span-5 flex flex-col gap-4">
                 <ScriptPrompter
                   scriptData={scriptData}
                   characters={characters}
                   onUpdateCharacters={(newChars) => {
                     setCharacters(newChars);
+                    setHasUnsavedChanges(true);
                     if (newChars.length > 0 && !newChars.some((c) => c.id === activeRecordingCharacterId)) {
                       setActiveRecordingCharacterId(newChars[0].id);
                     }
                   }}
                   players={players}
-                  onUpdatePlayers={setPlayers}
+                  onUpdatePlayers={(newPlayers) => {
+                    setPlayers(newPlayers);
+                    setHasUnsavedChanges(true);
+                  }}
                   currentTime={currentTime}
                   duration={duration}
-                  onUpdateScriptData={setScriptData}
+                  onUpdateScriptData={(newScript) => {
+                    setScriptData(newScript);
+                    setHasUnsavedChanges(true);
+                  }}
                   onGenerateAiScript={handleGenerateAiScript}
                   isGeneratingAi={isGeneratingAiScript}
                   transcriptionError={transcriptionError}
@@ -1396,6 +1646,8 @@ export default function App() {
               audioTakes={audioTakes}
               activeRecordingCharacterId={activeRecordingCharacterId}
               onSelectRecordingCharacter={setActiveRecordingCharacterId}
+              selectedTakeId={selectedTimelineTakeId}
+              onSelectTake={setSelectedTimelineTakeId}
               onToggleMuteTake={handleToggleMuteTake}
               onToggleSoloTake={handleToggleSoloTake}
               onChangeTakeVolume={handleChangeTakeVolume}
@@ -1410,11 +1662,17 @@ export default function App() {
               isRecording={isRecording}
             />
 
-            {/* Real-time Voice Effects & Soundboard Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-7">
+            {/* Real-time Voice Effects Row with Dub Auditioning */}
+            {(() => {
+              const activeAuditionTake = audioTakes.find((t) => t.id === selectedTimelineTakeId) || audioTakes.find((t) => t.characterId === activeRecordingCharacterId) || (audioTakes.length > 0 ? audioTakes[audioTakes.length - 1] : null);
+              const activeAuditionChar = activeAuditionTake ? characters.find((c) => c.id === activeAuditionTake.characterId) : null;
+
+              return (
                 <VoiceEffectsSelector
                   selectedEffect={activeVoiceEffect}
+                  targetTake={activeAuditionTake}
+                  targetCharacter={activeAuditionChar}
+                  onApplyEffectToTake={handleChangeTakeEffect}
                   onSelectEffect={(effect) => {
                     setActiveVoiceEffect(effect);
                     // Also update the player assigned to active character
@@ -1426,12 +1684,11 @@ export default function App() {
                     }
                   }}
                 />
-              </div>
+              );
+            })()}
 
-              <div className="lg:col-span-5">
-                <Soundboard />
-              </div>
-            </div>
+            {/* Live Party Soundboard Row */}
+            <Soundboard />
 
             {/* Video Clip Library & Tab Capture Drawer */}
             <ClipSelector
@@ -1468,6 +1725,44 @@ export default function App() {
         characters={characters}
         players={players}
         videoVolume={effectiveVideoVolume}
+      />
+
+      {/* User Cloud Projects Modal */}
+      <MyProjectsModal
+        isOpen={isMyProjectsOpen}
+        onClose={() => setIsMyProjectsOpen(false)}
+        user={user}
+        onSelectProject={handleSelectCloudProject}
+        onCreateNewProject={() => {
+          if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0)) {
+            const confirmed = window.confirm(
+              'You have unsaved takes in your current dubbing project. Do you want to discard them and create a new project?'
+            );
+            if (!confirmed) return;
+          }
+          stopPlayback();
+          clearDubSession();
+          setPresetClip(null);
+          setVideoSource(null);
+          setCurrentVideoBlob(null);
+          setAudioTakes([]);
+          setJudgeResult(null);
+          setCharacters([]);
+          setScriptData({
+            scriptTitle: 'Scene Dialogue',
+            synopsis: 'Capture a browser tab with sound to automatically transcribe lines and start dubbing.',
+            genre: 'Custom',
+            characters: [],
+            lines: [],
+          });
+          setCurrentCloudProjectId(null);
+          setHasUnsavedChanges(false);
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('project');
+          window.history.pushState({}, '', newUrl.toString());
+          setIsMyProjectsOpen(false);
+        }}
+        onSignInWithGoogle={handleSignInWithGoogle}
       />
 
       {/* Active Tab Recording Modal */}
