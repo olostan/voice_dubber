@@ -158,8 +158,11 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [useCountIn, setUseCountIn] = useState(true);
+  const [muteDuringRecording, setMuteDuringRecording] = useState(true);
   const [latencyOffsetMs, setLatencyOffsetMs] = useState(0);
   const [vuLevel, setVuLevel] = useState(0);
+  const vuLevelRef = useRef<number>(0);
+  const recordingPreRollStartRef = useRef<number>(0);
   const micRecorderRef = useRef<MicTakeRecorder | null>(null);
 
   // Keep refs in sync for requestAnimationFrame loop
@@ -631,6 +634,9 @@ export default function App() {
   });
 
   const effectiveVideoVolume = (() => {
+    if (isRecording && muteDuringRecording) {
+      return 0;
+    }
     if (audioTakes.length === 0 && !isRecording) {
       return videoVolume;
     }
@@ -971,6 +977,11 @@ export default function App() {
     audioTakes.forEach(async (take) => {
       if (take.muted) return;
 
+      // When actively recording with speaker muting enabled, silence audio takes to eliminate microphone bleed & echo
+      if (isRecordingRef.current && muteDuringRecording) {
+        return;
+      }
+
       // When actively recording / re-recording a line, DO NOT play the old take being replaced!
       if (isRecordingRef.current && targetRecordingLineRef.current) {
         const lineStart = targetRecordingLineRef.current.startTime;
@@ -1245,11 +1256,19 @@ export default function App() {
         });
       }
 
-      // Auto-pause when recording a specific dialogue line
+      // Smart Auto-stop when recording a specific dialogue line with speech overtime detection
       if (targetRecordingLineRef.current && isRecordingRef.current) {
-        if (relativeTime >= targetRecordingLineRef.current.endTime + 0.35) {
-          handleStopRecording();
-          return;
+        const lineEnd = targetRecordingLineRef.current.endTime;
+        const currentVu = vuLevelRef.current || 0;
+        if (relativeTime >= lineEnd) {
+          const overtime = relativeTime - lineEnd;
+          const isStillSpeaking = currentVu > 0.035;
+          const maxOvertime = 2.0;
+
+          if ((!isStillSpeaking && overtime >= 0.35) || overtime >= maxOvertime) {
+            handleStopRecording();
+            return;
+          }
         }
       }
 
@@ -1278,14 +1297,18 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isPlaying, isRecording, stopPlayback]);
 
-  // Start Recording Dub Take for a Specific Dialogue Line
+  // Start Recording Dub Take for a Specific Dialogue Line (with 1.0s lead-in pre-roll)
   const handleRecordSpecificLine = async (line: ScriptLine) => {
     stopPlayback();
     setNextPendingLine(null);
     setTargetRecordingLine(line);
     setActiveRecordingCharacterId(line.speakerId);
 
-    const startPos = Math.max(0, line.startTime);
+    // 1-second pre-roll buffer so actor can get ready and see context
+    const preRoll = 1.0;
+    const startPos = Math.max(0, parseFloat((line.startTime - preRoll).toFixed(2)));
+    recordingPreRollStartRef.current = startPos;
+
     setCurrentTime(startPos);
     if (videoElemRef.current) {
       videoElemRef.current.currentTime = startPos + (videoSource?.trimStartOffset || 0);
@@ -1296,7 +1319,10 @@ export default function App() {
       setCurrentTime(startPos);
 
       micRecorderRef.current = new MicTakeRecorder();
-      await micRecorderRef.current.start((level) => setVuLevel(level));
+      await micRecorderRef.current.start((level) => {
+        vuLevelRef.current = level;
+        setVuLevel(level);
+      });
 
       setIsRecording(true);
       startPlayback(startPos);
@@ -1364,7 +1390,10 @@ export default function App() {
     const startRecordingActual = async () => {
       setCountdown(null);
       micRecorderRef.current = new MicTakeRecorder();
-      await micRecorderRef.current.start((level) => setVuLevel(level));
+      await micRecorderRef.current.start((level) => {
+        vuLevelRef.current = level;
+        setVuLevel(level);
+      });
 
       setIsRecording(true);
       startPlayback(startPos);
@@ -1421,7 +1450,7 @@ export default function App() {
 
       const completedTargetLine = targetRecordingLineRef.current;
       const takeStartOffset = completedTargetLine
-        ? completedTargetLine.startTime
+        ? (recordingPreRollStartRef.current !== undefined ? recordingPreRollStartRef.current : completedTargetLine.startTime)
         : Math.max(0, latencyOffsetMs / 1000);
 
       const newTake: AudioTake = {
@@ -1448,7 +1477,7 @@ export default function App() {
       setAudioTakes((prev) => {
         let remaining: AudioTake[];
         if (completedTargetLine) {
-          const lStart = completedTargetLine.startTime;
+          const lStart = recordingPreRollStartRef.current !== undefined ? recordingPreRollStartRef.current : completedTargetLine.startTime;
           const lEnd = completedTargetLine.endTime;
           remaining = prev.filter((t) => {
             // Keep takes belonging to different characters
@@ -1510,6 +1539,24 @@ export default function App() {
     } catch (e) {
       console.warn('Process audio take error:', e);
     }
+  };
+
+  // Clear All Dub Takes (Reset Dubbing Session)
+  const handleClearAllTakes = () => {
+    if (audioTakes.length === 0) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to clear all ${audioTakes.length} recorded dub takes? Your video clip and script lines will be preserved.`
+    );
+    if (!confirmed) return;
+    stopPlayback();
+    setAudioTakes([]);
+    setJudgeResult(null);
+    setHasUnsavedChanges(true);
+    setNotificationToast({
+      message: '🗑️ Cleared all dub takes. Ready to re-record from the start.',
+      type: 'info',
+    });
+    setTimeout(() => setNotificationToast(null), 5000);
   };
 
   // Update Take Start Time Offset when Dragged on Timeline
@@ -1848,11 +1895,14 @@ export default function App() {
                   onChangeLatencyOffset={setLatencyOffsetMs}
                   useCountIn={useCountIn}
                   onToggleCountIn={() => setUseCountIn(!useCountIn)}
+                  muteDuringRecording={muteDuringRecording}
+                  onToggleMuteDuringRecording={() => setMuteDuringRecording(!muteDuringRecording)}
                   activeVoiceEffect={activeVoiceEffect}
                   onChangeVoiceEffect={setActiveVoiceEffect}
                   originalAudioMode={originalAudioMode}
                   onChangeOriginalAudioMode={setOriginalAudioMode}
-                  recordingLineText={targetRecordingLine?.text}
+                  recordingLine={targetRecordingLine}
+                  currentTime={currentTime}
                 />
               </div>
 
@@ -1874,6 +1924,7 @@ export default function App() {
                     setHasUnsavedChanges(true);
                   }}
                   audioTakes={audioTakes}
+                  onClearAllTakes={handleClearAllTakes}
                   currentTime={currentTime}
                   duration={duration}
                   onUpdateScriptData={(newScript) => {

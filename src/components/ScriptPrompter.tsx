@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AudioTake, Character, Player, ScriptData, ScriptLine } from '../types';
-import { Sparkles, Plus, Trash2, Edit3, Wand2, Clock, Check, RefreshCw, Mic, AlertCircle, ChevronRight, Users, UserPlus } from 'lucide-react';
+import { Sparkles, Plus, Trash2, Edit3, Wand2, Clock, Check, RefreshCw, Mic, AlertCircle, ChevronRight, Users, UserPlus, RotateCcw } from 'lucide-react';
 
 interface ScriptPrompterProps {
   scriptData: ScriptData;
@@ -9,6 +9,7 @@ interface ScriptPrompterProps {
   players?: Player[];
   onUpdatePlayers?: (players: Player[]) => void;
   audioTakes?: AudioTake[];
+  onClearAllTakes?: () => void;
   currentTime: number;
   duration: number;
   onUpdateScriptData: (data: ScriptData) => void;
@@ -47,6 +48,7 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
   players = [],
   onUpdatePlayers,
   audioTakes = [],
+  onClearAllTakes,
   currentTime,
   duration,
   onUpdateScriptData,
@@ -231,12 +233,24 @@ export const ScriptPrompter: React.FC<ScriptPrompterProps> = ({
           </p>
         </div>
 
-        {/* Edit Mode Toggle */}
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        {/* Action Controls */}
+        <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+          {audioTakes.length > 0 && onClearAllTakes && (
+            <button
+              id="clear-all-takes-btn"
+              onClick={onClearAllTakes}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-red-500/30 bg-red-950/30 hover:bg-red-950/60 text-red-300 hover:text-white text-xs font-bold transition-all cursor-pointer shadow-sm"
+              title="Clear all recorded voice dubs to re-record everything from the beginning"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-red-400" />
+              <span>Clear All Dubs ({audioTakes.length})</span>
+            </button>
+          )}
+
           <button
             id="toggle-edit-script-btn"
             onClick={() => setIsEditing(!isEditing)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
               isEditing
                 ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
                 : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
