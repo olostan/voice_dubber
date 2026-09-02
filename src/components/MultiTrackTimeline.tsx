@@ -357,7 +357,7 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
             {/* Playhead Needle on Ruler */}
             <div
               style={{ left: `${(currentTime / effectiveDuration) * 100}%` }}
-              className="absolute top-0 bottom-0 w-0.5 bg-orange-500 z-30 pointer-events-none"
+              className="absolute top-0 bottom-0 w-0.5 bg-orange-500 z-30 pointer-events-none shadow-[0_0_6px_rgba(249,115,22,0.8)]"
             >
               <div className="w-2.5 h-2.5 -ml-1 bg-orange-500 rounded-full shadow-md shadow-orange-950" />
             </div>
@@ -429,7 +429,7 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
             {/* Playhead Needle */}
             <div
               style={{ left: `${(currentTime / effectiveDuration) * 100}%` }}
-              className="absolute top-0 bottom-0 w-0.5 bg-orange-500 z-30 pointer-events-none"
+              className="absolute top-0 bottom-0 w-0.5 bg-orange-500 z-30 pointer-events-none shadow-[0_0_6px_rgba(249,115,22,0.8)]"
             />
           </div>
         </div>
@@ -586,7 +586,7 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
               <div
                 onClick={handleTimelineClick}
                 style={{ minHeight: `${laneMinHeight}px` }}
-                className="relative flex-1 cursor-pointer overflow-hidden bg-zinc-950/60 p-1"
+                className="relative flex-1 cursor-pointer overflow-hidden bg-zinc-950/60"
               >
                 {/* Script Cue Regions (Staggered Sub-Lanes so overlapping text never collides) */}
                 {linesWithLanes.map(({ item, laneIndex, totalLanes }) => {
@@ -741,7 +741,7 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                 {/* Playhead Needle */}
                 <div
                   style={{ left: `${(currentTime / effectiveDuration) * 100}%` }}
-                  className="absolute top-0 bottom-0 w-0.5 bg-orange-500 z-30 pointer-events-none"
+                  className="absolute top-0 bottom-0 w-0.5 bg-orange-500 z-30 pointer-events-none shadow-[0_0_6px_rgba(249,115,22,0.8)]"
                 />
               </div>
             </div>
