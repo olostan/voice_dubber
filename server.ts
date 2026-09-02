@@ -86,9 +86,24 @@ async function callGeminiWithRetry<T>(fn: () => Promise<T>, maxRetries = 2, dela
   throw lastErr;
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([
+    promise.then((res) => {
+      clearTimeout(timer);
+      return res;
+    }),
+    timeoutPromise,
+  ]);
+}
+
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: "25mb" }));
+  app.use(express.json({ limit: "100mb" }));
+  app.use(express.urlencoded({ limit: "100mb", extended: true }));
 
   // Static Favicons
   app.get("/favicon.ico", (_req, res) => {
@@ -181,14 +196,23 @@ async function startServer() {
     // 1. Sliding window rate limit (24 hours)
     try {
       const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-      const recentUploadsSnap = await db
-        .collection("upload_logs")
-        .where("identifier", "==", identifier)
-        .where("timestamp", ">=", oneDayAgo)
-        .get();
+      const recentUploadsSnap = await withTimeout(
+        db
+          .collection("upload_logs")
+          .where("identifier", "==", identifier)
+          .get(),
+        2500,
+        null
+      );
 
-      if (recentUploadsSnap.size >= MAX_UPLOADS_24H) {
-        return `Daily upload limit reached (${MAX_UPLOADS_24H} dubs per 24 hours). Please try again tomorrow.`;
+      if (recentUploadsSnap) {
+        const recentCount = recentUploadsSnap.docs.filter(
+          (d) => (d.data().timestamp || 0) >= oneDayAgo
+        ).length;
+
+        if (recentCount >= MAX_UPLOADS_24H) {
+          return `Daily upload limit reached (${MAX_UPLOADS_24H} dubs per 24 hours). Please try again tomorrow.`;
+        }
       }
     } catch (err) {
       console.warn("Rate limit verification error:", err);
@@ -197,12 +221,16 @@ async function startServer() {
     // 2. Maximum projects cap per user
     if (isNewProject && identifier !== "anonymous") {
       try {
-        const userProjectsSnap = await db
-          .collection("projects")
-          .where("authorId", "==", identifier)
-          .get();
+        const userProjectsSnap = await withTimeout(
+          db
+            .collection("projects")
+            .where("authorId", "==", identifier)
+            .get(),
+          2500,
+          null
+        );
 
-        if (userProjectsSnap.size >= MAX_PROJECTS_PER_USER) {
+        if (userProjectsSnap && userProjectsSnap.size >= MAX_PROJECTS_PER_USER) {
           return `Project limit reached (Maximum ${MAX_PROJECTS_PER_USER} dubs). Please delete an older project from "My Dubs" to save a new one.`;
         }
       } catch (err) {
@@ -217,11 +245,15 @@ async function startServer() {
   async function logUploadEvent(db: FirebaseFirestore.Firestore | null, identifier: string, projectId: string) {
     if (!db) return;
     try {
-      await db.collection("upload_logs").add({
-        identifier,
-        projectId,
-        timestamp: Date.now(),
-      });
+      await withTimeout(
+        db.collection("upload_logs").add({
+          identifier,
+          projectId,
+          timestamp: Date.now(),
+        }),
+        2500,
+        null
+      );
     } catch (err) {
       console.warn("Failed to log upload event:", err);
     }
@@ -257,9 +289,13 @@ async function startServer() {
 
       if (db) {
         try {
-          await db.collection("projects").doc(shareId).set(payload);
-          if (isNew) {
-            await logUploadEvent(db, identifier, shareId);
+          const savePromise = db.collection("projects").doc(shareId).set(payload);
+          const saved = await withTimeout(savePromise.then(() => true), 3500, false);
+          if (!saved) {
+            console.warn("Firestore save timed out (>3.5s), stored in local fallback cache for instant response");
+            localProjectsCache.set(shareId, payload);
+          } else if (isNew) {
+            logUploadEvent(db, identifier, shareId).catch(() => {});
           }
         } catch (dbErr) {
           console.warn("Firestore save warning, saving to local cache:", dbErr);

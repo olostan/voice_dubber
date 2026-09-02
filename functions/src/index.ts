@@ -11,7 +11,8 @@ if (getApps().length === 0) {
 }
 
 const app = express();
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json({ limit: "100mb" }));
+app.use(express.urlencoded({ limit: "100mb", extended: true }));
 
 const MEDIA_BUCKET_NAME = process.env.MEDIA_BUCKET || "fun-voice-dubber-media";
 
@@ -216,11 +217,16 @@ async function checkMisuseProtection(
     const recentUploadsSnap = await db
       .collection("upload_logs")
       .where("identifier", "==", identifier)
-      .where("timestamp", ">=", oneDayAgo)
       .get();
 
-    if (recentUploadsSnap.size >= MAX_UPLOADS_24H) {
-      return `Daily upload limit reached (${MAX_UPLOADS_24H} dubs per 24 hours). Please try again tomorrow.`;
+    if (recentUploadsSnap) {
+      const recentCount = recentUploadsSnap.docs.filter(
+        (d: QueryDocumentSnapshot) => (d.data().timestamp || 0) >= oneDayAgo
+      ).length;
+
+      if (recentCount >= MAX_UPLOADS_24H) {
+        return `Daily upload limit reached (${MAX_UPLOADS_24H} dubs per 24 hours). Please try again tomorrow.`;
+      }
     }
   } catch (err) {
     console.warn("Rate limit verification error:", err);
