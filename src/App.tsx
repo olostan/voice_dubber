@@ -1063,6 +1063,11 @@ export default function App() {
     if (videoElemRef.current) {
       const actualVideoTime = startOffset + (videoSource?.trimStartOffset || 0);
       videoElemRef.current.currentTime = actualVideoTime;
+      if ((isRecordingRef.current || isRecording) && muteDuringRecording) {
+        videoElemRef.current.volume = 0;
+      } else {
+        videoElemRef.current.volume = effectiveVideoVolume;
+      }
       videoElemRef.current.play().catch(() => {});
     }
 
@@ -1070,8 +1075,8 @@ export default function App() {
     audioTakes.forEach(async (take) => {
       if (take.muted) return;
 
-      // When actively recording with speaker muting enabled, silence audio takes to eliminate microphone bleed & echo
-      if (isRecordingRef.current && muteDuringRecording) {
+      // When actively recording with speaker muting enabled, silence all audio takes to eliminate microphone bleed & echo
+      if ((isRecordingRef.current || isRecording) && muteDuringRecording) {
         return;
       }
 
@@ -1430,7 +1435,11 @@ export default function App() {
         setVuLevel(level);
       });
 
+      isRecordingRef.current = true;
       setIsRecording(true);
+      if (videoElemRef.current && muteDuringRecording) {
+        videoElemRef.current.volume = 0;
+      }
       startPlayback(startPos);
     };
 
@@ -1501,7 +1510,11 @@ export default function App() {
         setVuLevel(level);
       });
 
+      isRecordingRef.current = true;
       setIsRecording(true);
+      if (videoElemRef.current && muteDuringRecording) {
+        videoElemRef.current.volume = 0;
+      }
       startPlayback(startPos);
     };
 
