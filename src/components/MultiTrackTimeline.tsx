@@ -40,6 +40,47 @@ const EFFECT_INFO: Record<VoiceEffect, { name: string; emoji: string; tag: strin
   reverb: { name: 'Reverb', emoji: '🏛️', tag: 'Echo' },
 };
 
+interface LineSubLaneItem {
+  startTime: number;
+  endTime: number;
+  line: ScriptLine;
+}
+
+interface TakeSubLaneItem {
+  startTime: number;
+  endTime: number;
+  take: AudioTake;
+}
+
+// Helper to assign collision-free vertical sub-lanes (0, 1, 2...) for overlapping items
+function assignSubLanes<T extends { startTime: number; endTime: number }>(
+  items: T[]
+): Array<{ item: T; laneIndex: number; totalLanes: number }> {
+  if (items.length === 0) return [];
+  const sorted = [...items].sort((a, b) => a.startTime - b.startTime);
+  const laneEndTimes: number[] = [];
+  const result: Array<{ item: T; laneIndex: number; totalLanes: number }> = [];
+
+  sorted.forEach((item) => {
+    let assignedLane = -1;
+    for (let i = 0; i < laneEndTimes.length; i++) {
+      if (laneEndTimes[i] <= item.startTime + 0.1) {
+        assignedLane = i;
+        laneEndTimes[i] = Math.max(laneEndTimes[i], item.endTime);
+        break;
+      }
+    }
+    if (assignedLane === -1) {
+      assignedLane = laneEndTimes.length;
+      laneEndTimes.push(item.endTime);
+    }
+    result.push({ item, laneIndex: assignedLane, totalLanes: 1 });
+  });
+
+  const maxLanes = Math.max(1, laneEndTimes.length);
+  return result.map((r) => ({ ...r, totalLanes: maxLanes }));
+}
+
 export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
   duration,
   currentTime,
@@ -323,9 +364,10 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
           </div>
         </div>
 
-        {/* Track 1: Original Video / Tab Audio Track */}
-        <div className="flex items-stretch border-b border-zinc-800/80 bg-zinc-900/40 hover:bg-zinc-900/60 transition-colors">
-          {/* Track Header */}
+      {/* Tracks Container */}
+      <div className="flex flex-col divide-y divide-zinc-800/80 select-none overflow-x-auto">
+        {/* Track 0: Original Video Background Audio */}
+        <div className="flex items-stretch border-b border-zinc-800/80 bg-zinc-950/30">
           <div className="w-48 sm:w-56 shrink-0 p-2.5 border-r border-zinc-800 flex flex-col justify-between gap-1.5">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 overflow-hidden">
@@ -340,7 +382,7 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                 <button
                   id="track-mute-bg-btn"
                   onClick={() => onVideoVolumeChange(videoVolume > 0 ? 0 : 1)}
-                  className="p-1 rounded text-zinc-400 hover:text-zinc-200"
+                  className="p-1 rounded text-zinc-400 hover:text-zinc-200 cursor-pointer"
                   title={videoVolume === 0 ? 'Unmute video audio' : 'Mute video audio'}
                 >
                   {videoVolume === 0 ? <VolumeX className="w-3.5 h-3.5 text-orange-400" /> : <Volume2 className="w-3.5 h-3.5" />}
@@ -352,7 +394,7 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                   step={0.05}
                   value={videoVolume}
                   onChange={(e) => onVideoVolumeChange(parseFloat(e.target.value))}
-                  className="w-12 h-1 bg-zinc-700 rounded appearance-none accent-zinc-400"
+                  className="w-12 h-1 bg-zinc-700 rounded appearance-none accent-zinc-400 cursor-pointer"
                   title={`Background Volume: ${Math.round(videoVolume * 100)}%`}
                 />
               </div>
@@ -382,19 +424,8 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
           {/* Track Timeline Lane */}
           <div
             onClick={handleTimelineClick}
-            className="relative flex-1 h-14 cursor-pointer overflow-hidden bg-zinc-950/40"
+            className="relative flex-1 h-16 cursor-pointer overflow-hidden bg-zinc-950/40"
           >
-            {/* Subtle background wave bars */}
-            <div className="absolute inset-0 flex items-center justify-around opacity-15 px-2 pointer-events-none">
-              {Array.from({ length: 40 }).map((_, i) => (
-                <div
-                  key={i}
-                  style={{ height: `${20 + Math.sin(i * 0.4) * 20}%` }}
-                  className="w-1 bg-zinc-400 rounded-full"
-                />
-              ))}
-            </div>
-
             {/* Playhead Needle */}
             <div
               style={{ left: `${(currentTime / effectiveDuration) * 100}%` }}
@@ -403,18 +434,30 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
           </div>
         </div>
 
-        {/* Character Voice Tracks */}
+        {/* Character Voice Tracks with Sub-Lane Anti-Collision Architecture */}
         {characters.map((char) => {
           const takesForChar = audioTakes.filter((t) => t.characterId === char.id);
-          const latestTake = takesForChar[takesForChar.length - 1];
           const assignedPlayer = players.find((p) => p.characterId === char.id) || players[0];
           const isTargetedForRecording = activeRecordingCharacterId === char.id;
           const charLines = scriptLines.filter((l) => l.speakerId === char.id);
 
-          const isThisTakeDragging = draggingTakeId === latestTake?.id;
-          const currentTakeOffset = isThisTakeDragging && dragOffsetPreview
-            ? dragOffsetPreview.offset
-            : latestTake?.startTimeOffset ?? 0;
+          // Focus take for left sidebar controls (active selected or latest)
+          const primaryTake = takesForChar.find((t) => t.id === activeSelectedTakeId) || takesForChar[takesForChar.length - 1];
+
+          // Compute collision-free sub-lanes for script lines
+          const mappedLines: LineSubLaneItem[] = charLines.map((l) => ({ startTime: l.startTime, endTime: l.endTime, line: l }));
+          const linesWithLanes = assignSubLanes<LineSubLaneItem>(mappedLines);
+
+          // Compute collision-free sub-lanes for takes
+          const mappedTakes: TakeSubLaneItem[] = takesForChar.map((t) => {
+            const isDragging = draggingTakeId === t.id;
+            const start = isDragging && dragOffsetPreview ? dragOffsetPreview.offset : t.startTimeOffset;
+            return { startTime: start, endTime: start + t.duration, take: t };
+          });
+          const takesWithLanes = assignSubLanes<TakeSubLaneItem>(mappedTakes);
+
+          const maxSubLanes = Math.max(1, linesWithLanes[0]?.totalLanes || 1, takesWithLanes[0]?.totalLanes || 1);
+          const laneMinHeight = maxSubLanes > 1 ? Math.max(80, maxSubLanes * 46) : 66;
 
           return (
             <div
@@ -444,7 +487,7 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                     id={`arm-track-${char.id}-btn`}
                     onClick={() => onSelectRecordingCharacter(char.id)}
                     disabled={isRecording}
-                    className={`p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                    className={`p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
                       isTargetedForRecording
                         ? 'bg-orange-500 text-white shadow-md shadow-orange-950 animate-pulse'
                         : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200'
@@ -456,29 +499,29 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                   </button>
                 </div>
 
-                {/* Take Controls (if take recorded) */}
-                {latestTake ? (
+                {/* Take Controls (if any take recorded for this character) */}
+                {primaryTake ? (
                   <div className="flex flex-col gap-1 pt-1 border-t border-zinc-800/60">
                     <div className="flex items-center justify-between gap-1">
                       <div className="flex items-center gap-1">
                         {/* Mute Take */}
                         <button
-                          onClick={() => onToggleMuteTake(latestTake.id)}
-                          className={`p-1 rounded text-xs ${
-                            latestTake.muted
+                          onClick={() => onToggleMuteTake(primaryTake.id)}
+                          className={`p-1 rounded text-xs cursor-pointer ${
+                            primaryTake.muted
                               ? 'bg-orange-500/20 text-orange-400'
                               : 'text-zinc-400 hover:text-zinc-200'
                           }`}
                           title="Mute track"
                         >
-                          {latestTake.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                          {primaryTake.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
                         </button>
 
                         {/* Solo Take */}
                         <button
-                          onClick={() => onToggleSoloTake(latestTake.id)}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                            latestTake.solo
+                          onClick={() => onToggleSoloTake(primaryTake.id)}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                            primaryTake.solo
                               ? 'bg-amber-500 text-black'
                               : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
                           }`}
@@ -493,18 +536,18 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                           min={0}
                           max={2}
                           step={0.1}
-                          value={latestTake.volume}
-                          onChange={(e) => onChangeTakeVolume(latestTake.id, parseFloat(e.target.value))}
-                          className="w-10 h-1 bg-zinc-700 rounded appearance-none accent-orange-400"
-                          title={`Volume: ${Math.round(latestTake.volume * 100)}%`}
+                          value={primaryTake.volume}
+                          onChange={(e) => onChangeTakeVolume(primaryTake.id, parseFloat(e.target.value))}
+                          className="w-10 h-1 bg-zinc-700 rounded appearance-none accent-orange-400 cursor-pointer"
+                          title={`Volume: ${Math.round(primaryTake.volume * 100)}%`}
                         />
                       </div>
 
                       {/* Delete Take */}
                       <button
-                        onClick={() => onDeleteTake(latestTake.id)}
-                        className="p-1 rounded text-zinc-500 hover:text-orange-400 transition-colors"
-                        title="Delete this take"
+                        onClick={() => onDeleteTake(primaryTake.id)}
+                        className="p-1 rounded text-zinc-500 hover:text-orange-400 transition-colors cursor-pointer"
+                        title="Delete selected take"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -514,8 +557,8 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                     <div className="flex items-center justify-between gap-1 text-[10px]">
                       <span className="text-zinc-500 font-bold uppercase">FX:</span>
                       <select
-                        value={latestTake.effect}
-                        onChange={(e) => onChangeTakeEffect(latestTake.id, e.target.value as VoiceEffect)}
+                        value={primaryTake.effect}
+                        onChange={(e) => onChangeTakeEffect(primaryTake.id, e.target.value as VoiceEffect)}
                         className="bg-zinc-950 border border-zinc-700/80 text-amber-300 font-extrabold rounded-lg px-1.5 py-0.5 text-[10px] focus:outline-none cursor-pointer flex-1 truncate"
                         title="Voice modifier applied to this audio take"
                       >
@@ -539,26 +582,45 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                 )}
               </div>
 
-              {/* Track Timeline Waveform Lane */}
+              {/* Track Timeline Waveform Lane (Staggered Sub-Lanes for Multi-Line Clarity) */}
               <div
                 onClick={handleTimelineClick}
-                className="relative flex-1 h-16 cursor-pointer overflow-hidden bg-zinc-950/60"
+                style={{ minHeight: `${laneMinHeight}px` }}
+                className="relative flex-1 cursor-pointer overflow-hidden bg-zinc-950/60 p-1"
               >
-                {/* Script Cue Regions */}
-                {charLines.map((line) => {
+                {/* Script Cue Regions (Staggered Sub-Lanes so overlapping text never collides) */}
+                {linesWithLanes.map(({ item, laneIndex, totalLanes }) => {
+                  const line = item.line;
                   const leftPct = (line.startTime / effectiveDuration) * 100;
-                  const widthPct = ((line.endTime - line.startTime) / effectiveDuration) * 100;
+                  const widthPct = Math.max(1.5, ((line.endTime - line.startTime) / effectiveDuration) * 100);
+                  const topPct = (laneIndex / totalLanes) * 100;
+                  const heightPct = (1 / totalLanes) * 100;
+
+                  // Has take covering this line
+                  const hasCoveringTake = takesForChar.some(
+                    (t) => (t.lineId && t.lineId === line.id) || (t.startTimeOffset < line.endTime && t.startTimeOffset + t.duration > line.startTime)
+                  );
+
                   return (
                     <div
                       key={line.id}
-                      style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                      className="absolute top-1 bottom-1 bg-orange-500/15 border border-orange-500/30 rounded-lg p-1 flex flex-col justify-between overflow-hidden pointer-events-none group/cue"
+                      style={{
+                        left: `${leftPct}%`,
+                        width: `${widthPct}%`,
+                        top: `calc(${topPct}% + 2px)`,
+                        height: `calc(${heightPct}% - 4px)`,
+                      }}
+                      className={`absolute rounded-xl p-1.5 flex flex-col justify-between overflow-hidden pointer-events-none transition-all ${
+                        hasCoveringTake
+                          ? 'bg-orange-950/15 border border-dashed border-orange-500/25 opacity-40'
+                          : 'bg-orange-500/15 border border-orange-500/40 shadow-sm'
+                      }`}
                     >
-                      <span className="text-[9px] font-bold text-orange-300 truncate">
+                      <span className="text-[10px] font-black text-orange-300 truncate leading-tight">
                         "{line.text}"
                       </span>
                       {line.cue && (
-                        <span className="text-[8px] text-amber-300/80 italic truncate">
+                        <span className="text-[9px] text-amber-300/80 italic truncate leading-none">
                           [{line.cue}]
                         </span>
                       )}
@@ -566,89 +628,115 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
                   );
                 })}
 
-                {/* Audio Waveform & VAD Speech Blocks (Draggable Left / Right) */}
-                {latestTake && (
-                  <div
-                    onMouseDown={(e) => handleTakeMouseDown(e, latestTake)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSelectTakeLocal(latestTake.id);
-                    }}
-                    style={{
-                      left: `${(currentTakeOffset / effectiveDuration) * 100}%`,
-                      width: `${(latestTake.duration / effectiveDuration) * 100}%`,
-                    }}
-                    className={`absolute top-2 bottom-2 rounded-lg border flex items-center px-1 overflow-hidden transition-all select-none group/take cursor-pointer ${
-                      onUpdateTakeOffset ? 'cursor-ew-resize hover:border-amber-400' : ''
-                    } ${
-                      isThisTakeDragging
-                        ? 'border-emerald-400 bg-emerald-900/60 shadow-xl shadow-emerald-950/80 ring-2 ring-emerald-400 z-20 cursor-grabbing'
-                        : activeSelectedTakeId === latestTake.id
-                        ? 'border-amber-400 bg-amber-950/50 ring-2 ring-amber-400 shadow-xl shadow-amber-950/70 z-10'
-                        : latestTake.muted
-                        ? 'opacity-40 border-zinc-700 bg-zinc-900/50'
-                        : 'border-emerald-500/50 bg-emerald-950/40 hover:bg-emerald-950/60'
-                    }`}
-                    title="Click to select & audition FX, or drag left/right to move audio take"
-                  >
-                    {/* Drag Handle Icon */}
-                    {onUpdateTakeOffset && (
-                      <div className="absolute left-1 top-1 bottom-1 flex items-center opacity-60 group-hover/take:opacity-100 pointer-events-none">
-                        <MoveHorizontal className="w-3 h-3 text-emerald-300" />
-                      </div>
-                    )}
+                {/* Audio Waveforms for ALL Takes on this Character (Staggered Sub-Lanes for Non-Overlapping Clarity) */}
+                {takesWithLanes.map(({ item, laneIndex, totalLanes }) => {
+                  const take = item.take;
+                  const isThisTakeDragging = draggingTakeId === take.id;
+                  const currentTakeOffset = isThisTakeDragging && dragOffsetPreview
+                    ? dragOffsetPreview.offset
+                    : take.startTimeOffset;
 
-                    {/* Attached Voice Effect Badge on Waveform */}
-                    <div className="absolute right-1.5 top-1 bottom-1 flex items-center z-10 pointer-events-none">
-                      <span className="text-[9px] font-black uppercase tracking-wider bg-zinc-950/90 text-amber-300 px-1.5 py-0.5 rounded-full border border-amber-500/50 flex items-center gap-1 shadow-md backdrop-blur-xs">
-                        <span>{EFFECT_INFO[latestTake.effect]?.emoji || '🎙️'}</span>
-                        <span className="hidden md:inline font-bold text-zinc-100">{EFFECT_INFO[latestTake.effect]?.name || 'Clean'}</span>
-                      </span>
+                  const leftPct = (currentTakeOffset / effectiveDuration) * 100;
+                  const widthPct = Math.max(2, (take.duration / effectiveDuration) * 100);
+                  const topPct = (laneIndex / totalLanes) * 100;
+                  const heightPct = (1 / totalLanes) * 100;
+
+                  const matchingLine = scriptLines.find((l) => l.id === take.lineId) ||
+                    charLines.find((l) => l.startTime >= take.startTimeOffset - 0.5 && l.startTime <= take.startTimeOffset + take.duration);
+
+                  return (
+                    <div
+                      key={take.id}
+                      onMouseDown={(e) => handleTakeMouseDown(e, take)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectTakeLocal(take.id);
+                      }}
+                      style={{
+                        left: `${leftPct}%`,
+                        width: `${widthPct}%`,
+                        top: `calc(${topPct}% + 2px)`,
+                        height: `calc(${heightPct}% - 4px)`,
+                      }}
+                      className={`absolute rounded-xl border flex items-center px-2 overflow-hidden transition-all select-none group/take cursor-pointer ${
+                        onUpdateTakeOffset ? 'cursor-ew-resize hover:border-amber-400' : ''
+                      } ${
+                        isThisTakeDragging
+                          ? 'border-emerald-400 bg-emerald-900/80 shadow-2xl shadow-emerald-950 ring-2 ring-emerald-400 z-30 cursor-grabbing'
+                          : activeSelectedTakeId === take.id
+                          ? 'border-amber-400 bg-amber-950/70 ring-2 ring-amber-400 shadow-xl shadow-amber-950/80 z-20'
+                          : take.muted
+                          ? 'opacity-40 border-zinc-700 bg-zinc-900/60 z-10'
+                          : 'border-emerald-500/60 bg-emerald-950/60 hover:bg-emerald-950/80 shadow-md z-10'
+                      }`}
+                      title="Click to select/audition FX or drag left/right to shift timing"
+                    >
+                      {/* Drag Handle Icon */}
+                      {onUpdateTakeOffset && (
+                        <div className="absolute left-1 top-1 bottom-1 flex items-center opacity-60 group-hover/take:opacity-100 pointer-events-none">
+                          <MoveHorizontal className="w-3 h-3 text-emerald-300" />
+                        </div>
+                      )}
+
+                      {/* Line Title Overlay (if matched to a script line) */}
+                      {matchingLine && (
+                        <div className="absolute top-0.5 left-4 right-14 truncate text-[9px] font-extrabold text-emerald-200/90 pointer-events-none drop-shadow-xs">
+                          "{matchingLine.text}"
+                        </div>
+                      )}
+
+                      {/* Attached Voice Effect Badge on Waveform */}
+                      <div className="absolute right-1.5 top-1 bottom-1 flex items-center z-10 pointer-events-none">
+                        <span className="text-[9px] font-black uppercase tracking-wider bg-zinc-950/90 text-amber-300 px-1.5 py-0.5 rounded-full border border-amber-500/50 flex items-center gap-1 shadow-md backdrop-blur-xs">
+                          <span>{EFFECT_INFO[take.effect]?.emoji || '🎙️'}</span>
+                          <span className="hidden md:inline font-bold text-zinc-100">{EFFECT_INFO[take.effect]?.name || 'Clean'}</span>
+                        </span>
+                      </div>
+
+                      {/* Render Waveform Bars */}
+                      {take.waveformData && take.waveformData.length > 0 ? (
+                        <div className="w-full h-full flex items-center justify-between gap-[1px] pl-4 pr-14 pointer-events-none">
+                          {take.waveformData.map((val, idx) => (
+                            <div
+                              key={idx}
+                              style={{ height: `${Math.max(12, val * 100)}%` }}
+                              className={`w-1 rounded-full ${
+                                take.muted ? 'bg-zinc-600' : 'bg-emerald-400'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-emerald-400 font-mono font-bold flex items-center gap-1 pl-4 pointer-events-none">
+                          <Radio className="w-3 h-3 animate-pulse" />
+                          <span>Dub ({take.duration.toFixed(1)}s)</span>
+                        </div>
+                      )}
+
+                      {/* Drag Offset Pill / Tooltip */}
+                      {isThisTakeDragging && (
+                        <div className="absolute top-0 right-1 bg-zinc-950/90 text-emerald-300 border border-emerald-500/50 px-1 py-0.2 rounded text-[9px] font-mono font-bold shadow-md pointer-events-none">
+                          {currentTakeOffset.toFixed(2)}s
+                        </div>
+                      )}
+
+                      {/* VAD Speech Highlights */}
+                      {take.vadSegments &&
+                        take.vadSegments.map((seg, sIdx) => {
+                          const segLeft = (seg.start / take.duration) * 100;
+                          const segWidth = ((seg.end - seg.start) / take.duration) * 100;
+                          return (
+                            <div
+                              key={sIdx}
+                              style={{ left: `${segLeft}%`, width: `${segWidth}%` }}
+                              className="absolute top-0 bottom-0 bg-emerald-400/20 border-b-2 border-emerald-400 pointer-events-none"
+                              title={`Speech: ${seg.start.toFixed(1)}s - ${seg.end.toFixed(1)}s`}
+                            />
+                          );
+                        })}
                     </div>
-
-                    {/* Render Waveform Bars */}
-                    {latestTake.waveformData && latestTake.waveformData.length > 0 ? (
-                      <div className="w-full h-full flex items-center justify-between gap-[1px] pl-3 pr-14 pointer-events-none">
-                        {latestTake.waveformData.map((val, idx) => (
-                          <div
-                            key={idx}
-                            style={{ height: `${Math.max(10, val * 100)}%` }}
-                            className={`w-1 rounded-full ${
-                              latestTake.muted ? 'bg-zinc-600' : 'bg-emerald-400'
-                            }`}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-[10px] text-emerald-400 font-mono font-bold flex items-center gap-1 pl-3 pointer-events-none">
-                        <Radio className="w-3 h-3 animate-pulse" />
-                        <span>Dubbed Take ({latestTake.duration.toFixed(1)}s)</span>
-                      </div>
-                    )}
-
-                    {/* Drag Offset Pill / Tooltip */}
-                    {isThisTakeDragging && (
-                      <div className="absolute top-0 right-1 bg-zinc-950/90 text-emerald-300 border border-emerald-500/50 px-1 py-0.2 rounded text-[9px] font-mono font-bold shadow-md pointer-events-none">
-                        {currentTakeOffset.toFixed(2)}s
-                      </div>
-                    )}
-
-                    {/* VAD Speech Highlights */}
-                    {latestTake.vadSegments &&
-                      latestTake.vadSegments.map((seg, sIdx) => {
-                        const segLeft = (seg.start / latestTake.duration) * 100;
-                        const segWidth = ((seg.end - seg.start) / latestTake.duration) * 100;
-                        return (
-                          <div
-                            key={sIdx}
-                            style={{ left: `${segLeft}%`, width: `${segWidth}%` }}
-                            className="absolute top-0 bottom-0 bg-emerald-400/20 border-b-2 border-emerald-400 pointer-events-none"
-                            title={`Speech: ${seg.start.toFixed(1)}s - ${seg.end.toFixed(1)}s`}
-                          />
-                        );
-                      })}
-                  </div>
-                )}
+                  );
+                })}
 
                 {/* Playhead Needle */}
                 <div
@@ -660,6 +748,7 @@ export const MultiTrackTimeline: React.FC<MultiTrackTimelineProps> = ({
           );
         })}
       </div>
+    </div>
     </div>
   );
 };
