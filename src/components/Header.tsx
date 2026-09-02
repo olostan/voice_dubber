@@ -21,6 +21,8 @@ interface HeaderProps {
   onOpenMyProjects: () => void;
   onSaveToCloud?: () => void;
   isSavingToCloud?: boolean;
+  hasUnsavedChanges?: boolean;
+  isSavingLocally?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -42,6 +44,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenMyProjects,
   onSaveToCloud,
   isSavingToCloud = false,
+  hasUnsavedChanges = false,
+  isSavingLocally = false,
 }) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -62,8 +66,8 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header id="app-header" className="border-b border-zinc-800/80 bg-[#121215]/95 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-6 py-2.5">
       <div className="max-w-[1720px] mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
-        {/* Left: Interactive Brand & Editable Project Title */}
-        <div className="flex items-center gap-3.5 w-full md:w-auto justify-between md:justify-start">
+        {/* Left: Interactive Brand & Editable Project Title & Storage Status */}
+        <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start flex-wrap">
           <button
             id="brand-home-btn"
             onClick={onGoHome}
@@ -85,46 +89,85 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </button>
 
-          {/* Inline Project Title Rename Pill (shown in Studio mode) */}
+          {/* Inline Project Title Rename Pill & Storage Indicator (shown in Studio mode) */}
           {currentView === 'studio' && (
-            <div className="flex items-center gap-1.5 bg-zinc-900/90 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 px-3 py-1 rounded-xl transition-all shadow-inner group">
-              <Film className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              {isEditingTitle ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    id="project-rename-input"
-                    type="text"
-                    value={titleInput}
-                    onChange={(e) => setTitleInput(e.target.value)}
-                    onBlur={handleSaveTitle}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveTitle();
-                      if (e.key === 'Escape') {
-                        setTitleInput(projectTitle);
-                        setIsEditingTitle(false);
-                      }
-                    }}
-                    autoFocus
-                    className="bg-zinc-950 text-white font-extrabold text-xs px-2 py-0.5 rounded border border-orange-500 focus:outline-none max-w-[200px]"
-                  />
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 bg-zinc-900/90 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 px-3 py-1 rounded-xl transition-all shadow-inner group">
+                <Film className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                {isEditingTitle ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      id="project-rename-input"
+                      type="text"
+                      value={titleInput}
+                      onChange={(e) => setTitleInput(e.target.value)}
+                      onBlur={handleSaveTitle}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveTitle();
+                        if (e.key === 'Escape') {
+                          setTitleInput(projectTitle);
+                          setIsEditingTitle(false);
+                        }
+                      }}
+                      autoFocus
+                      className="bg-zinc-950 text-white font-extrabold text-xs px-2 py-0.5 rounded border border-orange-500 focus:outline-none max-w-[200px]"
+                    />
+                    <button
+                      onClick={handleSaveTitle}
+                      className="p-1 rounded bg-orange-500 hover:bg-orange-600 text-black font-bold cursor-pointer"
+                      title="Save title"
+                    >
+                      <Check className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
                   <button
-                    onClick={handleSaveTitle}
-                    className="p-1 rounded bg-orange-500 hover:bg-orange-600 text-black font-bold cursor-pointer"
-                    title="Save title"
+                    id="rename-project-btn"
+                    onClick={() => setIsEditingTitle(true)}
+                    className="flex items-center gap-1.5 text-xs font-bold text-zinc-200 hover:text-white transition-colors text-left cursor-pointer"
+                    title="Click to rename project"
                   >
-                    <Check className="w-3 h-3" />
+                    <span className="max-w-[140px] sm:max-w-[200px] truncate">{projectTitle || 'Untitled Dub'}</span>
+                    <Edit3 className="w-3 h-3 text-zinc-500 group-hover:text-amber-400 transition-colors shrink-0" />
                   </button>
-                </div>
-              ) : (
-                <button
-                  id="rename-project-btn"
-                  onClick={() => setIsEditingTitle(true)}
-                  className="flex items-center gap-1.5 text-xs font-bold text-zinc-200 hover:text-white transition-colors text-left cursor-pointer"
-                  title="Click to rename project"
+                )}
+              </div>
+
+              {/* Local Storage & Modified Status Badge */}
+              {hasVideoLoaded && (
+                <div
+                  className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-extrabold border transition-all ${
+                    isSavingLocally
+                      ? 'bg-sky-500/15 text-sky-300 border-sky-500/30 animate-pulse'
+                      : hasUnsavedChanges
+                      ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-xs'
+                      : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-xs'
+                  }`}
+                  title={
+                    isSavingLocally
+                      ? 'Saving changes to local browser storage...'
+                      : hasUnsavedChanges
+                      ? 'Local modifications saved on this device (offline). Not yet synced to cloud.'
+                      : 'All dub takes, waveforms, and edits are safely saved in browser storage.'
+                  }
                 >
-                  <span className="max-w-[150px] sm:max-w-[220px] truncate">{projectTitle || 'Untitled Dub'}</span>
-                  <Edit3 className="w-3 h-3 text-zinc-500 group-hover:text-amber-400 transition-colors shrink-0" />
-                </button>
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      isSavingLocally
+                        ? 'bg-sky-400 animate-ping'
+                        : hasUnsavedChanges
+                        ? 'bg-amber-400 animate-pulse'
+                        : 'bg-emerald-400'
+                    }`}
+                  />
+                  <span>
+                    {isSavingLocally
+                      ? '💾 Saving...'
+                      : hasUnsavedChanges
+                      ? '● Modified Locally'
+                      : '✓ Saved Locally'}
+                  </span>
+                </div>
               )}
             </div>
           )}

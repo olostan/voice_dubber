@@ -77,6 +77,40 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
+export interface SessionMeta {
+  updatedAt: number;
+  title: string;
+  takesCount: number;
+  hasTakes: boolean;
+  projectId?: string | null;
+  hasUnsavedChanges?: boolean;
+}
+
+const META_STORAGE_KEY = 'voice_dubber_session_meta';
+
+export function getLastSessionMeta(): SessionMeta | null {
+  try {
+    const raw = localStorage.getItem(META_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function updateSessionMeta(meta: Partial<SessionMeta>): void {
+  try {
+    const existing = getLastSessionMeta() || {
+      updatedAt: Date.now(),
+      title: 'Scene Dialogue',
+      takesCount: 0,
+      hasTakes: false,
+    };
+    localStorage.setItem(META_STORAGE_KEY, JSON.stringify({ ...existing, ...meta, updatedAt: Date.now() }));
+  } catch {
+    // ignore
+  }
+}
+
 // Save complete working dub session to IndexedDB (supports global working session and per-project keying)
 export async function saveDubSession(
   session: {
@@ -95,6 +129,7 @@ export async function saveDubSession(
     videoSource: VideoSource | null;
     audioTakes: AudioTake[];
     videoBlob?: Blob | null;
+    hasUnsavedChanges?: boolean;
   },
   projectId?: string | null
 ): Promise<void> {
@@ -162,6 +197,21 @@ export async function saveDubSession(
       videoSourceData,
       takes: takesToSave,
     };
+
+    // Also update fast-access localStorage metadata
+    try {
+      const meta: SessionMeta = {
+        updatedAt: Date.now(),
+        title: session.scriptData.scriptTitle || session.presetClip?.title || session.videoSource?.title || 'Scene Dialogue',
+        takesCount: takesToSave.length,
+        hasTakes: takesToSave.length > 0,
+        projectId: projectId || null,
+        hasUnsavedChanges: session.hasUnsavedChanges ?? false,
+      };
+      localStorage.setItem(META_STORAGE_KEY, JSON.stringify(meta));
+    } catch {
+      // ignore
+    }
 
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -318,9 +368,10 @@ export async function loadDubSession(projectId?: string | null): Promise<{
   }
 }
 
-// Clear the current dub session from IndexedDB
+// Clear the current dub session from IndexedDB and localStorage
 export async function clearDubSession(): Promise<void> {
   try {
+    localStorage.removeItem(META_STORAGE_KEY);
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');

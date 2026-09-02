@@ -44,8 +44,9 @@ import { WelcomeCapturePrompt } from './components/WelcomeCapturePrompt';
 import { ActiveTabRecordingModal } from './components/ActiveTabRecordingModal';
 import { MyProjectsModal } from './components/MyProjectsModal';
 import { HomePage } from './components/HomePage';
+import { ConfirmDiscardModal } from './components/ConfirmDiscardModal';
 import { RotateCcw, Mic, CheckCircle2, ChevronRight, Volume2, Sparkles, UserCheck } from 'lucide-react';
-import { saveDubSession, loadDubSession, clearDubSession } from './utils/persistence';
+import { saveDubSession, loadDubSession, clearDubSession, getLastSessionMeta } from './utils/persistence';
 import { AuthUserProfile, signInWithGoogle, signOutUser, subscribeToAuthChanges } from './utils/auth';
 import { CloudProjectPayload, saveProjectToCloud, loadProjectFromCloud, uploadProjectMedia } from './utils/cloudSync';
 
@@ -60,37 +61,41 @@ export default function App() {
     return isStudio || isView || params.get('project') || hash ? 'studio' : 'home';
   });
 
-  // Modals
-  const [isAiJudgeOpen, setIsAiJudgeOpen] = useState(false);
-  const [isShowtimeOpen, setIsShowtimeOpen] = useState<boolean>(() => {
-    return window.location.pathname.startsWith('/view');
-  });
-  const [isShareOpen, setIsShareOpen] = useState(false);
-  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
-  const [privacyInitialTab, setPrivacyInitialTab] = useState<'privacy' | 'terms' | 'ai' | 'copyright'>('privacy');
-  const [isMyProjectsOpen, setIsMyProjectsOpen] = useState(false);
-  const [isSavingToCloud, setIsSavingToCloud] = useState(false);
-
-  // Cloud Upload Progress & Auto-Retry State
-  const [uploadState, setUploadState] = useState<UploadState>({
-    isOpen: false,
-    phase: 'preparing',
-    percent: 0,
-    loadedBytes: 0,
-    totalBytes: 0,
-    message: '',
-  });
-
-  // Google User Authentication State
+  // User Authentication State
   const [user, setUser] = useState<AuthUserProfile | null>(null);
 
-  // Active Clip & Video Source - starts empty so user is prompted to record from tab
+  // Cloud Project & Save State
+  const [isSavingToCloud, setIsSavingToCloud] = useState<boolean>(false);
+  const [isSavingLocally, setIsSavingLocally] = useState<boolean>(false);
+  const [uploadState, setUploadState] = useState<UploadState>({ status: 'idle' });
+
+  // Discard Confirmation Modal State
+  const [discardModalState, setDiscardModalState] = useState<{
+    isOpen: boolean;
+    pendingAction: (() => void) | null;
+    actionTitle?: string;
+    actionDescription?: string;
+  }>({
+    isOpen: false,
+    pendingAction: null,
+  });
+
+  // Modal Dialogs State
+  const [isClipSelectorOpen, setIsClipSelectorOpen] = useState(false);
+  const [isAiJudgeOpen, setIsAiJudgeOpen] = useState(false);
+  const [isShowtimeOpen, setIsShowtimeOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
+  const [isMyProjectsOpen, setIsMyProjectsOpen] = useState(false);
+  const [privacyInitialTab, setPrivacyInitialTab] = useState<'privacy' | 'terms' | 'ai' | 'copyright'>('privacy');
+
+  // Active Clip & Video Source
   const [presetClip, setPresetClip] = useState<PresetClipInfo | null>(null);
   const [videoSource, setVideoSource] = useState<VideoSource | null>(null);
   const [currentVideoBlob, setCurrentVideoBlob] = useState<Blob | null>(null);
-  const [isCapturingTab, setIsCapturingTab] = useState(false);
+  const [isCapturingTab, setIsCapturingTab] = useState<boolean>(false);
   const [activeCaptureSession, setActiveCaptureSession] = useState<TabCaptureSession | null>(null);
-  const [isLoadedFromStorage, setIsLoadedFromStorage] = useState(false);
+  const [isLoadedFromStorage, setIsLoadedFromStorage] = useState<boolean>(false);
 
   // Video / Canvas References
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -105,19 +110,22 @@ export default function App() {
   const animFrameRef = useRef<number | null>(null);
   const lastPlayTimeRef = useRef<number>(0);
 
-  // Line-by-Line Dubbing State
+  // Line-by-Line Dubbing State & Prompter Sync
   const [targetRecordingLine, setTargetRecordingLine] = useState<ScriptLine | null>(null);
   const [nextPendingLine, setNextPendingLine] = useState<ScriptLine | null>(null);
   const [lastCompletedLine, setLastCompletedLine] = useState<ScriptLine | null>(null);
   const [selectedTimelineTakeId, setSelectedTimelineTakeId] = useState<string | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(() => {
+    const meta = getLastSessionMeta();
+    return meta?.hasUnsavedChanges ?? false;
+  });
   const [currentCloudProjectId, setCurrentCloudProjectId] = useState<string | null>(null);
   const targetRecordingLineRef = useRef<ScriptLine | null>(null);
   const isRecordingRef = useRef<boolean>(false);
 
   // Audio Transcription & Diarization State
-  const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
-  const [transcribingStatus, setTranscribingStatus] = useState('');
+  const [isTranscribingAudio, setIsTranscribingAudio] = useState<boolean>(false);
+  const [transcribingStatus, setTranscribingStatus] = useState<string>('');
   const [notificationToast, setNotificationToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
   // Characters & Players
@@ -149,21 +157,46 @@ export default function App() {
     lines: [],
   });
 
-  const [isGeneratingAiScript, setIsGeneratingAiScript] = useState(false);
+  const [isGeneratingAiScript, setIsGeneratingAiScript] = useState<boolean>(false);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
 
   // Recording State
   const [activeRecordingCharacterId, setActiveRecordingCharacterId] = useState<string>('char-1');
   const [activeVoiceEffect, setActiveVoiceEffect] = useState<VoiceEffect>('none');
-  const [isRecording, setIsRecording] = useState(false);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [useCountIn, setUseCountIn] = useState(true);
-  const [muteDuringRecording, setMuteDuringRecording] = useState(true);
-  const [latencyOffsetMs, setLatencyOffsetMs] = useState(0);
-  const [vuLevel, setVuLevel] = useState(0);
+  const [useCountIn, setUseCountIn] = useState<boolean>(true);
+  const [muteDuringRecording, setMuteDuringRecording] = useState<boolean>(true);
+  const [latencyOffsetMs, setLatencyOffsetMs] = useState<number>(0);
+  const [vuLevel, setVuLevel] = useState<number>(0);
   const vuLevelRef = useRef<number>(0);
   const recordingPreRollStartRef = useRef<number>(0);
   const micRecorderRef = useRef<MicTakeRecorder | null>(null);
+
+  // Multi-Track Takes
+  const [audioTakes, setAudioTakes] = useState<AudioTake[]>([]);
+  const activeSourcesRef = useRef<{ source: AudioBufferSourceNode; gain: GainNode }[]>([]);
+
+  // Helper to safely prompt user before discarding local project changes
+  const requestActionWithDiscardProtection = useCallback(
+    (
+      action: () => void,
+      actionTitle = 'Proceed',
+      actionDescription = 'This will replace your current workspace and discard local recordings that have not been uploaded to the cloud.'
+    ) => {
+      if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0)) {
+        setDiscardModalState({
+          isOpen: true,
+          pendingAction: action,
+          actionTitle,
+          actionDescription,
+        });
+      } else {
+        action();
+      }
+    },
+    [hasUnsavedChanges, audioTakes.length, scriptData.lines.length]
+  );
 
   // Keep refs in sync for requestAnimationFrame loop
   useEffect(() => {
@@ -173,10 +206,6 @@ export default function App() {
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
-
-  // Multi-Track Takes
-  const [audioTakes, setAudioTakes] = useState<AudioTake[]>([]);
-  const activeSourcesRef = useRef<{ source: AudioBufferSourceNode; gain: GainNode }[]>([]);
 
   // AI Judge State
   const [judgeResult, setJudgeResult] = useState<JudgeResult | null>(null);
@@ -301,29 +330,35 @@ export default function App() {
     };
   }, []);
 
-  // 3. Debounced Auto-Save Working Dub Session to IndexedDB
+  // 3. Debounced Auto-Save Working Dub Session to IndexedDB & Local Storage
   useEffect(() => {
     if (!isLoadedFromStorage) return;
     if (!videoSource && !presetClip && audioTakes.length === 0) return;
 
-    const timer = setTimeout(() => {
-      saveDubSession({
-        duration,
-        videoVolume,
-        originalAudioMode,
-        characters,
-        players,
-        scriptData,
-        activeRecordingCharacterId,
-        activeVoiceEffect,
-        latencyOffsetMs,
-        useCountIn,
-        judgeResult,
-        presetClip,
-        videoSource,
-        audioTakes,
-        videoBlob: currentVideoBlob,
-      });
+    setIsSavingLocally(true);
+    const timer = setTimeout(async () => {
+      await saveDubSession(
+        {
+          duration,
+          videoVolume,
+          originalAudioMode,
+          characters,
+          players,
+          scriptData,
+          activeRecordingCharacterId,
+          activeVoiceEffect,
+          latencyOffsetMs,
+          useCountIn,
+          judgeResult,
+          presetClip,
+          videoSource,
+          audioTakes,
+          videoBlob: currentVideoBlob,
+          hasUnsavedChanges,
+        },
+        currentCloudProjectId
+      );
+      setIsSavingLocally(false);
     }, 400);
 
     return () => clearTimeout(timer);
@@ -344,6 +379,8 @@ export default function App() {
     videoSource,
     audioTakes,
     currentVideoBlob,
+    hasUnsavedChanges,
+    currentCloudProjectId,
   ]);
 
   // Warn before browser navigation or tab close when unsaved changes exist
@@ -502,130 +539,168 @@ export default function App() {
   };
 
   // Load a Cloud Project into Active Workspace and Update Browser URL
-  const handleSelectCloudProject = async (project: CloudProjectPayload) => {
-    if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0)) {
-      const confirmed = window.confirm(
-        'You have unsaved changes in your current project. Do you want to discard them and load this cloud project?'
-      );
-      if (!confirmed) return;
-    }
+  const handleSelectCloudProject = (project: CloudProjectPayload) => {
+    requestActionWithDiscardProtection(
+      async () => {
+        stopPlayback();
 
-    stopPlayback();
+        const pId = project.id || project.shareId || null;
+        if (pId) {
+          const isView = window.location.pathname.startsWith('/view') || isShowtimeOpen;
+          const targetPath = isView ? `/view#${pId}` : `/studio#${pId}`;
+          window.history.pushState({ projectId: pId }, '', targetPath);
+          setCurrentCloudProjectId(pId);
+        }
 
-    const pId = project.id || project.shareId || null;
-    if (pId) {
-      const isView = window.location.pathname.startsWith('/view') || isShowtimeOpen;
-      const targetPath = isView ? `/view#${pId}` : `/studio#${pId}`;
-      window.history.pushState({ projectId: pId }, '', targetPath);
-      setCurrentCloudProjectId(pId);
-    }
+        // Check if this browser has locally cached video & dubbed audio takes for this project ID
+        const localCached = pId ? await loadDubSession(pId) : null;
 
-    // Check if this browser has locally cached video & dubbed audio takes for this project ID
-    const localCached = pId ? await loadDubSession(pId) : null;
+        // 1. Resolve Video Source (Cloud Storage URL > Local IndexedDB Cache > Studio Soundstage)
+        if (project.videoUrl) {
+          setVideoSource({
+            type: 'upload',
+            url: project.videoUrl,
+            title: project.title || 'Dub Video',
+            duration: project.duration || 15,
+            width: 1280,
+            height: 720,
+            hasAudioTrack: true,
+            trimStartOffset: project.trimStartOffset || 0,
+            trimEndOffset: project.trimEndOffset || 0,
+          });
+          setPresetClip(null);
+        } else if (localCached && localCached.videoSource) {
+          setVideoSource({
+            ...localCached.videoSource,
+            trimStartOffset: project.trimStartOffset ?? localCached.videoSource.trimStartOffset ?? 0,
+            trimEndOffset: project.trimEndOffset ?? localCached.videoSource.trimEndOffset ?? 0,
+          });
+          setCurrentVideoBlob(localCached.videoBlob);
+          setPresetClip(localCached.presetClip);
+        } else {
+          // Soundstage canvas fallback (NOT the cat)
+          setPresetClip({
+            id: 'soundstage-default',
+            title: project.title || 'Scene Dialogue',
+            description: project.synopsis || 'Voice Dubbing Soundstage',
+            duration: project.duration || 15,
+            genre: project.genre || 'Comedy',
+            defaultCharacters: project.characters || [],
+            defaultScript: project.lines?.map((l) => ({
+              speakerIndex: 0,
+              startTime: l.startTime,
+              endTime: l.endTime,
+              text: l.text,
+              cue: l.cue,
+            })) || [],
+            renderScene: (ctx, width, height, time) => {
+              const bgGrad = ctx.createLinearGradient(0, 0, width, height);
+              bgGrad.addColorStop(0, '#09090b');
+              bgGrad.addColorStop(0.5, '#18181b');
+              bgGrad.addColorStop(1, '#09090b');
+              ctx.fillStyle = bgGrad;
+              ctx.fillRect(0, 0, width, height);
 
-    // 1. Resolve Video Source (Cloud Storage URL > Local IndexedDB Cache > Studio Soundstage)
-    if (project.videoUrl) {
-      setVideoSource({
-        type: 'upload',
-        url: project.videoUrl,
-        title: project.title || 'Dub Video',
-        duration: project.duration || 15,
-        width: 1280,
-        height: 720,
-        hasAudioTrack: true,
-        trimStartOffset: project.trimStartOffset || 0,
-        trimEndOffset: project.trimEndOffset || 0,
-      });
-      setPresetClip(null);
-    } else if (localCached && localCached.videoSource) {
-      setVideoSource({
-        ...localCached.videoSource,
-        trimStartOffset: project.trimStartOffset ?? localCached.videoSource.trimStartOffset ?? 0,
-        trimEndOffset: project.trimEndOffset ?? localCached.videoSource.trimEndOffset ?? 0,
-      });
-      setCurrentVideoBlob(localCached.videoBlob);
-      setPresetClip(localCached.presetClip);
-    } else {
-      // Soundstage canvas fallback (NOT the cat)
-      setPresetClip({
-        id: `custom-${pId || Date.now()}`,
-        title: project.title || 'Dubbing Soundstage',
-        genre: project.genre || 'Dubbing Studio',
-        duration: project.duration || 15,
-        description: project.synopsis || 'Recorded dialogue scene ready for dubbing.',
-        renderType: 'studio',
-        defaultCharacters: project.characters || [],
-        defaultScript: (project.lines || []).map((l, i) => ({
-          speakerIndex: i % (project.characters?.length || 1),
-          startTime: l.startTime,
-          endTime: l.endTime,
-          text: l.text,
-          cue: l.cue || '',
-        })),
-      });
-      setVideoSource(null);
-    }
+              const beamX = width * 0.5 + Math.sin(time * 0.8) * (width * 0.25);
+              const spot = ctx.createRadialGradient(beamX, height * 0.2, 20, beamX, height * 0.5, width * 0.45);
+              spot.addColorStop(0, 'rgba(249, 115, 22, 0.22)');
+              spot.addColorStop(1, 'rgba(0,0,0,0)');
+              ctx.fillStyle = spot;
+              ctx.fillRect(0, 0, width, height);
 
-    // 2. Resolve Audio Takes (Cloud Storage Takes > Local Takes > Empty for Fresh Recording)
-    if (project.takes && project.takes.length > 0) {
-      const restoredCloudTakes: AudioTake[] = project.takes.map((t) => ({
-        id: t.id,
-        playerId: t.playerId,
-        characterId: t.characterId,
-        audioBlob: new Blob([]),
-        audioUrl: t.audioUrl,
-        duration: t.duration,
-        startTimeOffset: t.startTimeOffset,
-        volume: t.volume ?? 1.0,
-        muted: Boolean(t.muted),
-        solo: Boolean(t.solo),
-        effect: (t.effect as any) || 'none',
-        waveformData: t.waveformData,
-        vadSegments: t.vadSegments,
-        recordedAt: t.recordedAt || Date.now(),
-      }));
-      setAudioTakes(restoredCloudTakes);
-    } else if (localCached && localCached.audioTakes.length > 0) {
-      setAudioTakes(localCached.audioTakes);
-    } else {
-      setAudioTakes([]);
-    }
+              ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+              ctx.lineWidth = 1;
+              for (let y = height * 0.6; y < height; y += 24) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+              }
 
-    setCharacters(project.characters || localCached?.characters || []);
-    setPlayers(project.players || localCached?.players || []);
-    setScriptData(
-      project.lines && project.lines.length > 0
-        ? {
-            scriptTitle: project.title || 'Scene Dialogue',
-            synopsis: project.synopsis || '',
-            genre: project.genre || 'Custom',
-            characters: project.characters || [],
-            lines: project.lines || [],
-          }
-        : localCached?.scriptData || {
-            scriptTitle: 'Scene Dialogue',
-            synopsis: '',
-            genre: 'Custom',
-            characters: [],
-            lines: [],
-          }
+              ctx.font = '900 28px Outfit, sans-serif';
+              ctx.fillStyle = '#f97316';
+              ctx.textAlign = 'center';
+              ctx.fillText('🎬 STUDIO SOUNDSTAGE', width / 2, height * 0.45);
+
+              ctx.font = '600 16px Plus Jakarta Sans, sans-serif';
+              ctx.fillStyle = '#a1a1aa';
+              ctx.fillText(project.title || 'Ready to Record Voice Dubs', width / 2, height * 0.52);
+            },
+          });
+          setVideoSource(null);
+          setCurrentVideoBlob(null);
+        }
+
+        // 2. Resolve Characters & Players
+        if (project.characters && project.characters.length > 0) {
+          setCharacters(project.characters);
+          setActiveRecordingCharacterId(project.characters[0]?.id || 'char-1');
+          setPlayers(
+            project.characters.map((c, i) => ({
+              id: `p-${i + 1}`,
+              name: `Actor ${i + 1}`,
+              characterId: c.id,
+              avatarColor: c.color,
+              voiceEffect: 'none',
+            }))
+          );
+        }
+
+        // 3. Resolve Script Data
+        setScriptData({
+          scriptTitle: project.title || 'Scene Dialogue',
+          synopsis: project.synopsis || '',
+          genre: project.genre || 'Custom',
+          characters: project.characters || [],
+          lines: project.lines || [],
+        });
+
+        // 4. Resolve Dub Takes (prefer local binary audio buffer takes if cached on this machine)
+        if (localCached && localCached.audioTakes && localCached.audioTakes.length > 0) {
+          setAudioTakes(localCached.audioTakes);
+        } else if (project.takes && project.takes.length > 0) {
+          const takesWithBuffers = await Promise.all(
+            project.takes.map(async (t) => {
+              if (t.audioUrl) {
+                try {
+                  const res = await fetch(t.audioUrl);
+                  const blob = await res.blob();
+                  const buf = await blobToAudioBuffer(blob);
+                  return {
+                    ...t,
+                    audioBlob: blob,
+                    audioBuffer: buf,
+                  };
+                } catch {
+                  return t;
+                }
+              }
+              return t;
+            })
+          );
+          setAudioTakes(takesWithBuffers);
+        } else {
+          setAudioTakes([]);
+        }
+
+        setDuration(project.duration || 15);
+        setCurrentTime(0);
+        setJudgeResult(null);
+        setHasUnsavedChanges(false);
+        setIsMyProjectsOpen(false);
+
+        setNotificationToast({
+          message: `📂 Loaded "${project.title || 'Dub Project'}".`,
+          type: 'success',
+        });
+        setTimeout(() => setNotificationToast(null), 5000);
+      },
+      'Load Cloud Dub',
+      `Loading "${project.title || 'Cloud Project'}" will replace your current workspace.`
     );
-    setDuration(project.duration || localCached?.duration || 15);
-    setCurrentTime(0);
-    if (project.characters && project.characters.length > 0) {
-      setActiveRecordingCharacterId(project.characters[0].id);
-    }
-    setJudgeResult(null);
-    setHasUnsavedChanges(false);
-    setCurrentView('studio');
-    setNotificationToast({
-      message: `📂 Loaded project "${project.title}". Ready for Showtime!`,
-      type: 'success',
-    });
-    setTimeout(() => setNotificationToast(null), 5000);
   };
 
-  // Calculate Effective Video Volume with Selected Ducking Treatment
+  // Calculate dynamic volume ducking for background video audio
   const isSpeakingNow = audioTakes.some((take) => {
     if (take.muted) return false;
     const takeStart = take.startTimeOffset;
@@ -641,14 +716,14 @@ export default function App() {
       return videoVolume;
     }
     switch (originalAudioMode) {
+      case 'mute':
+        return 0;
       case 'duck_5':
         return videoVolume * 0.05;
       case 'duck_10':
         return videoVolume * 0.10;
       case 'duck_25':
         return videoVolume * 0.25;
-      case 'mute':
-        return 0;
       case 'keep':
         return videoVolume;
       case 'smart_duck':
@@ -660,56 +735,56 @@ export default function App() {
 
   // Synchronize characters when preset changes
   const handleSelectPreset = (clip: PresetClipInfo) => {
-    if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0)) {
-      const confirmed = window.confirm(
-        'You have unsaved changes in your current project. Do you want to discard them and load this clip?'
-      );
-      if (!confirmed) return;
-    }
-    stopPlayback();
-    setPresetClip(clip);
-    setVideoSource(null);
-    setCurrentVideoBlob(null);
-    setDuration(clip.duration);
-    setCurrentTime(0);
-    setCurrentView('studio');
+    requestActionWithDiscardProtection(
+      () => {
+        stopPlayback();
+        setPresetClip(clip);
+        setVideoSource(null);
+        setCurrentVideoBlob(null);
+        setDuration(clip.duration);
+        setCurrentTime(0);
+        setCurrentView('studio');
 
-    const newChars: Character[] = clip.defaultCharacters.map((c, i) => ({
-      id: `char-${i + 1}`,
-      name: c.name,
-      voiceStyle: c.voiceStyle,
-      color: c.color,
-      avatarIcon: c.avatarIcon,
-    }));
+        const newChars: Character[] = clip.defaultCharacters.map((c, i) => ({
+          id: `char-${i + 1}`,
+          name: c.name,
+          voiceStyle: c.voiceStyle,
+          color: c.color,
+          avatarIcon: c.avatarIcon,
+        }));
 
-    setCharacters(newChars);
-    setActiveRecordingCharacterId(newChars[0]?.id || 'char-1');
+        setCharacters(newChars);
+        setActiveRecordingCharacterId(newChars[0]?.id || 'char-1');
 
-    setScriptData({
-      scriptTitle: clip.title,
-      synopsis: clip.description,
-      genre: clip.genre,
-      characters: newChars,
-      lines: clip.defaultScript.map((s, i) => ({
-        id: `line-${i + 1}`,
-        speakerId: `char-${s.speakerIndex + 1}`,
-        speakerName: newChars[s.speakerIndex]?.name || 'Actor',
-        startTime: s.startTime,
-        endTime: s.endTime,
-        text: s.text,
-        cue: s.cue,
-      })),
-    });
+        setScriptData({
+          scriptTitle: clip.title,
+          synopsis: clip.description,
+          genre: clip.genre,
+          characters: newChars,
+          lines: clip.defaultScript.map((s, i) => ({
+            id: `line-${i + 1}`,
+            speakerId: `char-${s.speakerIndex + 1}`,
+            speakerName: newChars[s.speakerIndex]?.name || 'Actor',
+            startTime: s.startTime,
+            endTime: s.endTime,
+            text: s.text,
+            cue: s.cue,
+          })),
+        });
 
-    // Reset takes for fresh clip
-    setAudioTakes([]);
-    setJudgeResult(null);
-    setCurrentCloudProjectId(null);
-    setHasUnsavedChanges(false);
+        // Reset takes for fresh clip
+        setAudioTakes([]);
+        setJudgeResult(null);
+        setCurrentCloudProjectId(null);
+        setHasUnsavedChanges(false);
 
-    const newUrl = new URL(window.location.href);
-    newUrl.searchParams.delete('project');
-    window.history.pushState({}, '', newUrl.toString());
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('project');
+        window.history.pushState({}, '', newUrl.toString());
+      },
+      'Load Preset Clip',
+      `Loading "${clip.title}" will start a fresh scene and replace your current project.`
+    );
   };
 
   // Audio Transcription & Diarization Engine
@@ -852,30 +927,36 @@ export default function App() {
   };
 
   // Handle Tab or Screen Capture
-  const handleCaptureTab = async () => {
-    stopPlayback();
-    try {
-      const session = await startTabOrScreenCapture();
-      setActiveCaptureSession(session);
-      setIsCapturingTab(true);
-    } catch (err: any) {
-      console.warn('Screen capture cancelled or failed:', err);
-      setIsCapturingTab(false);
-      setActiveCaptureSession(null);
-      if (err?.name === 'NotAllowedError' || err?.message?.includes('Permission denied')) {
-        setNotificationToast({
-          message: 'Tab recording cancelled: please select a tab or window and allow sharing to record.',
-          type: 'info',
-        });
-        setTimeout(() => setNotificationToast(null), 5000);
-      } else if (err?.message) {
-        setNotificationToast({
-          message: err.message,
-          type: 'error',
-        });
-        setTimeout(() => setNotificationToast(null), 7000);
-      }
-    }
+  const handleCaptureTab = () => {
+    requestActionWithDiscardProtection(
+      async () => {
+        stopPlayback();
+        try {
+          const session = await startTabOrScreenCapture();
+          setActiveCaptureSession(session);
+          setIsCapturingTab(true);
+        } catch (err: any) {
+          console.warn('Screen capture cancelled or failed:', err);
+          setIsCapturingTab(false);
+          setActiveCaptureSession(null);
+          if (err?.name === 'NotAllowedError' || err?.message?.includes('Permission denied')) {
+            setNotificationToast({
+              message: 'Tab recording cancelled: please select a tab or window and allow sharing to record.',
+              type: 'info',
+            });
+            setTimeout(() => setNotificationToast(null), 5000);
+          } else if (err?.message) {
+            setNotificationToast({
+              message: err.message,
+              type: 'error',
+            });
+            setTimeout(() => setNotificationToast(null), 7000);
+          }
+        }
+      },
+      'Record New Tab',
+      'Recording a new tab will replace your current workspace and discard local takes.'
+    );
   };
 
   const handleStopTabCapture = async () => {
@@ -925,31 +1006,37 @@ export default function App() {
 
   // Handle Custom Video Upload
   const handleUploadVideo = (file: File) => {
-    stopPlayback();
-    const url = URL.createObjectURL(file);
-    const video = document.createElement('video');
-    video.src = url;
-    video.onloadedmetadata = () => {
-      const dur = Math.max(2, Math.round(video.duration));
-      setVideoSource({
-        type: 'upload',
-        url,
-        title: file.name.replace(/\.[^/.]+$/, ''),
-        duration: dur,
-        width: video.videoWidth || 1280,
-        height: video.videoHeight || 720,
-        hasAudioTrack: true,
-      });
-      setCurrentVideoBlob(file);
-      setPresetClip(null);
-      setDuration(dur);
-      setCurrentTime(0);
-      setAudioTakes([]);
-      setJudgeResult(null);
+    requestActionWithDiscardProtection(
+      () => {
+        stopPlayback();
+        const url = URL.createObjectURL(file);
+        const video = document.createElement('video');
+        video.src = url;
+        video.onloadedmetadata = () => {
+          const dur = Math.max(2, Math.round(video.duration));
+          setVideoSource({
+            type: 'upload',
+            url,
+            title: file.name.replace(/\.[^/.]+$/, ''),
+            duration: dur,
+            width: video.videoWidth || 1280,
+            height: video.videoHeight || 720,
+            hasAudioTrack: true,
+          });
+          setCurrentVideoBlob(file);
+          setPresetClip(null);
+          setDuration(dur);
+          setCurrentTime(0);
+          setAudioTakes([]);
+          setJudgeResult(null);
 
-      // Automatically transcribe uploaded video audio
-      runAudioTranscription(file, file.name.replace(/\.[^/.]+$/, ''), dur);
-    };
+          // Automatically transcribe uploaded video audio
+          runAudioTranscription(file, file.name.replace(/\.[^/.]+$/, ''), dur);
+        };
+      },
+      'Upload New Video',
+      'Uploading a new video will replace your current workspace and discard local takes.'
+    );
   };
 
   // Playback & Audio Multi-Track Synchronization Loop
@@ -1752,36 +1839,38 @@ export default function App() {
         onOpenMyProjects={() => setIsMyProjectsOpen(true)}
         onSaveToCloud={handleSaveCurrentToCloud}
         isSavingToCloud={isSavingToCloud}
+        hasUnsavedChanges={hasUnsavedChanges}
+        isSavingLocally={isSavingLocally}
         onResetClip={() => {
-          if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0)) {
-            const confirmed = window.confirm(
-              'You have unsaved takes in your current dubbing project. Do you want to discard them and create a new project?'
-            );
-            if (!confirmed) return;
-          }
-          stopPlayback();
-          clearDubSession();
-          setPresetClip(null);
-          setVideoSource(null);
-          setCurrentVideoBlob(null);
-          setAudioTakes([]);
-          setJudgeResult(null);
-          setCharacters([]);
-          setScriptData({
-            scriptTitle: 'Scene Dialogue',
-            synopsis: 'Capture a browser tab with sound to automatically transcribe lines and start dubbing.',
-            genre: 'Custom',
-            characters: [],
-            lines: [],
-          });
-          setCurrentCloudProjectId(null);
-          setHasUnsavedChanges(false);
-          navigateToStudio(null);
-          setNotificationToast({
-            message: '🗑️ Cleared working project. Ready for a new video.',
-            type: 'info',
-          });
-          setTimeout(() => setNotificationToast(null), 4000);
+          requestActionWithDiscardProtection(
+            () => {
+              stopPlayback();
+              clearDubSession();
+              setPresetClip(null);
+              setVideoSource(null);
+              setCurrentVideoBlob(null);
+              setAudioTakes([]);
+              setJudgeResult(null);
+              setCharacters([]);
+              setScriptData({
+                scriptTitle: 'Scene Dialogue',
+                synopsis: 'Capture a browser tab with sound to automatically transcribe lines and start dubbing.',
+                genre: 'Custom',
+                characters: [],
+                lines: [],
+              });
+              setCurrentCloudProjectId(null);
+              setHasUnsavedChanges(false);
+              navigateToStudio(null);
+              setNotificationToast({
+                message: '🗑️ Cleared working project. Ready for a new video.',
+                type: 'info',
+              });
+              setTimeout(() => setNotificationToast(null), 4000);
+            },
+            'Start New Dub',
+            'This will clear your current local dubbing project and discard un-uploaded takes.'
+          );
         }}
       />
 
@@ -2080,33 +2169,33 @@ export default function App() {
         user={user}
         onSelectProject={handleSelectCloudProject}
         onCreateNewProject={() => {
-          if (hasUnsavedChanges && (audioTakes.length > 0 || scriptData.lines.length > 0)) {
-            const confirmed = window.confirm(
-              'You have unsaved takes in your current dubbing project. Do you want to discard them and create a new project?'
-            );
-            if (!confirmed) return;
-          }
-          stopPlayback();
-          clearDubSession();
-          setPresetClip(null);
-          setVideoSource(null);
-          setCurrentVideoBlob(null);
-          setAudioTakes([]);
-          setJudgeResult(null);
-          setCharacters([]);
-          setScriptData({
-            scriptTitle: 'Scene Dialogue',
-            synopsis: 'Capture a browser tab with sound to automatically transcribe lines and start dubbing.',
-            genre: 'Custom',
-            characters: [],
-            lines: [],
-          });
-          setCurrentCloudProjectId(null);
-          setHasUnsavedChanges(false);
-          const newUrl = new URL(window.location.href);
-          newUrl.searchParams.delete('project');
-          window.history.pushState({}, '', newUrl.toString());
-          setIsMyProjectsOpen(false);
+          requestActionWithDiscardProtection(
+            () => {
+              stopPlayback();
+              clearDubSession();
+              setPresetClip(null);
+              setVideoSource(null);
+              setCurrentVideoBlob(null);
+              setAudioTakes([]);
+              setJudgeResult(null);
+              setCharacters([]);
+              setScriptData({
+                scriptTitle: 'Scene Dialogue',
+                synopsis: 'Capture a browser tab with sound to automatically transcribe lines and start dubbing.',
+                genre: 'Custom',
+                characters: [],
+                lines: [],
+              });
+              setCurrentCloudProjectId(null);
+              setHasUnsavedChanges(false);
+              const newUrl = new URL(window.location.href);
+              newUrl.searchParams.delete('project');
+              window.history.pushState({}, '', newUrl.toString());
+              setIsMyProjectsOpen(false);
+            },
+            'Create New Project',
+            'This will clear your local working project and discard un-uploaded takes.'
+          );
         }}
         onSignInWithGoogle={handleSignInWithGoogle}
       />
@@ -2117,6 +2206,33 @@ export default function App() {
         stream={activeCaptureSession?.stream || null}
         hasAudio={activeCaptureSession?.hasAudio || false}
         onStop={handleStopTabCapture}
+      />
+
+      {/* Confirm Discard Local Project Modal */}
+      <ConfirmDiscardModal
+        isOpen={discardModalState.isOpen}
+        projectTitle={scriptData.scriptTitle}
+        takesCount={audioTakes.length}
+        actionTitle={discardModalState.actionTitle}
+        actionDescription={discardModalState.actionDescription}
+        onConfirmDiscard={() => {
+          const action = discardModalState.pendingAction;
+          setDiscardModalState({ isOpen: false, pendingAction: null });
+          if (action) action();
+        }}
+        onSaveToCloudFirst={
+          user
+            ? async () => {
+                await handleSaveCurrentToCloud();
+                const action = discardModalState.pendingAction;
+                setDiscardModalState({ isOpen: false, pendingAction: null });
+                if (action) action();
+              }
+            : undefined
+        }
+        onCancel={() => {
+          setDiscardModalState({ isOpen: false, pendingAction: null });
+        }}
       />
 
       {/* Cloud Upload Progress & Auto-Retry Modal */}
