@@ -1989,6 +1989,7 @@ export default function App() {
                   characters={characters}
                   activeRecordingCharacterId={activeRecordingCharacterId}
                   isRecording={isRecording}
+                  muteDuringRecording={muteDuringRecording}
                   countdown={countdown}
                   recordingLineText={targetRecordingLine?.text || nextPendingLine?.text || scriptData.lines.find((l) => l.speakerId === activeRecordingCharacterId)?.text || null}
                   recordingLineCue={targetRecordingLine?.cue || nextPendingLine?.cue || scriptData.lines.find((l) => l.speakerId === activeRecordingCharacterId)?.cue || null}

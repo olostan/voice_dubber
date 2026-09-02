@@ -18,6 +18,7 @@ interface VideoCanvasPlayerProps {
   characters: Character[];
   activeRecordingCharacterId: string | null;
   isRecording: boolean;
+  muteDuringRecording?: boolean;
   countdown: number | null; // 3, 2, 1, or null
   recordingLineText?: string | null;
   recordingLineCue?: string | null;
@@ -43,6 +44,7 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
   characters,
   activeRecordingCharacterId,
   isRecording,
+  muteDuringRecording = true,
   countdown,
   recordingLineText,
   recordingLineCue,
@@ -90,13 +92,15 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
     }
   }, [currentTime, isPlaying, trimStartOffset]);
 
-  // Synchronize video element volume
+  // Synchronize video element volume and hardware mute state
   useEffect(() => {
     const video = videoRef.current;
     if (video) {
-      video.volume = videoVolume;
+      const shouldMute = isRecording && muteDuringRecording;
+      video.muted = shouldMute;
+      video.volume = shouldMute ? 0 : videoVolume;
     }
-  }, [videoVolume]);
+  }, [videoVolume, isRecording, muteDuringRecording]);
 
   // Canvas drawing loop for preset animated clips
   useEffect(() => {
@@ -172,6 +176,7 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
                 ref={videoRef}
                 src={videoSource.url}
                 playsInline
+                muted={isRecording && muteDuringRecording}
                 className="absolute"
                 style={{
                   left: `-${(videoSource.cropBounds.x / videoSource.cropBounds.width) * 100}%`,
@@ -189,6 +194,7 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
               ref={videoRef}
               src={videoSource.url}
               playsInline
+              muted={isRecording && muteDuringRecording}
               className="absolute inset-0 w-full h-full object-contain"
               onEnded={() => onSeek(duration)}
             />
