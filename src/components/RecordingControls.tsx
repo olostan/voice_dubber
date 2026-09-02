@@ -60,125 +60,106 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   const progressPct = Math.min(100, Math.max(0, (elapsed / lineDur) * 100));
 
   return (
-    <div id="recording-controls" className="w-full bg-zinc-900/95 rounded-2xl border border-zinc-800/90 p-4 shadow-xl flex flex-col gap-3.5 font-['Plus_Jakarta_Sans']">
-      {/* Top Row: Character & Voice FX on Left, Settings & Meter Toolbar on Right */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-800/70">
-        {/* Left: Active Character / Actor Selector & Voice Modifier */}
-        <div className="flex items-center gap-3 shrink-0">
+    <div id="recording-controls" className="w-full bg-zinc-900/95 rounded-2xl border border-zinc-800/90 p-3 shadow-xl flex flex-col gap-2.5 font-['Plus_Jakarta_Sans']">
+      {/* Single Consolidated Master Row */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        {/* Left: Character & Voice FX */}
+        <div className="flex items-center gap-2 shrink-0">
           <div
-            className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center text-xl shadow-lg border border-white/20 shrink-0"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-base shadow-md border border-white/20 shrink-0"
             style={{ backgroundColor: activeChar?.color || '#f97316' }}
           >
             {activeChar?.avatarIcon || '🎭'}
           </div>
 
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider text-zinc-400">
-              Recording Take For:
-            </span>
-            <div className="flex items-center gap-2 flex-wrap">
-              <select
-                id="recording-character-select"
-                value={activeRecordingCharacterId}
-                onChange={(e) => onSelectRecordingCharacter(e.target.value)}
-                disabled={isRecording}
-                className="bg-zinc-950 border border-zinc-700 hover:border-zinc-600 rounded-xl px-3 py-1 text-xs font-black text-zinc-100 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer max-w-[170px] truncate"
-              >
-                {characters.map((c) => {
-                  const assigned = players.find((p) => p.characterId === c.id);
-                  return (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({assigned?.name || 'Actor'})
-                    </option>
-                  );
-                })}
-              </select>
+          <select
+            id="recording-character-select"
+            value={activeRecordingCharacterId}
+            onChange={(e) => onSelectRecordingCharacter(e.target.value)}
+            disabled={isRecording}
+            className="bg-zinc-950 border border-zinc-700 hover:border-zinc-500 rounded-xl px-2.5 py-1 text-xs font-black text-zinc-100 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer max-w-[140px] truncate"
+            title="Active voice character being dubbed"
+          >
+            {characters.map((c) => {
+              const assigned = players.find((p) => p.characterId === c.id);
+              return (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({assigned?.name || 'Actor'})
+                </option>
+              );
+            })}
+          </select>
 
-              {/* Attached Real-Time Voice Modifier */}
-              {onChangeVoiceEffect && (
-                <select
-                  id="recording-voice-effect-select"
-                  value={activeVoiceEffect || 'none'}
-                  onChange={(e) => onChangeVoiceEffect(e.target.value as VoiceEffect)}
-                  disabled={isRecording}
-                  className="bg-zinc-950 border border-amber-500/50 hover:border-amber-400 rounded-xl px-2.5 py-1 text-xs font-black text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm"
-                  title="Voice modifier applied in real-time to your microphone take"
-                >
-                  <option value="none">🎙️ Clean FX</option>
-                  <option value="villain">🦹‍♂️ Movie Villain</option>
-                  <option value="chipmunk">🐿️ Chipmunk</option>
-                  <option value="robot">🤖 Cyber Robot</option>
-                  <option value="radio">📻 Walkie-Talkie</option>
-                  <option value="megaphone">📢 Megaphone</option>
-                  <option value="reverb">🏛️ Reverb</option>
-                </select>
-              )}
-            </div>
-          </div>
+          {onChangeVoiceEffect && (
+            <select
+              id="recording-voice-effect-select"
+              value={activeVoiceEffect || 'none'}
+              onChange={(e) => onChangeVoiceEffect(e.target.value as VoiceEffect)}
+              disabled={isRecording}
+              className="bg-zinc-950 border border-amber-500/50 hover:border-amber-400 rounded-xl px-2 py-1 text-xs font-black text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm"
+              title="Voice modifier applied in real-time to your microphone take"
+            >
+              <option value="none">🎙️ Clean FX</option>
+              <option value="villain">🦹‍♂️ Villain</option>
+              <option value="chipmunk">🐿️ Chipmunk</option>
+              <option value="robot">🤖 Robot</option>
+              <option value="radio">📻 Radio</option>
+              <option value="megaphone">📢 Megaphone</option>
+              <option value="reverb">🏛️ Reverb</option>
+            </select>
+          )}
         </div>
 
-        {/* Right: VU Meter & Latency Calibration & Ducking Toolbar */}
-        <div className="flex items-center gap-2 flex-wrap justify-end shrink-0">
-          {/* Real-time VU Meter */}
-          <div className="flex items-center gap-2 bg-zinc-950 px-2.5 py-1 rounded-xl border border-zinc-800 shrink-0">
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center justify-between text-[9px] text-zinc-400 font-mono gap-2">
-                <span>MIC</span>
-                <span className={vuLevel > 0.75 ? 'text-orange-400 font-bold' : 'text-emerald-400'}>
-                  {vuLevel > 0.01 ? `${Math.round(vuLevel * 100)}%` : 'MUTED'}
-                </span>
-              </div>
-              <div className="w-14 h-1.5 bg-zinc-800 rounded-full overflow-hidden flex gap-0.5">
-                <div
-                  style={{ width: `${Math.min(100, vuLevel * 100)}%` }}
-                  className={`h-full rounded-full transition-all duration-75 ${
-                    vuLevel > 0.75
-                      ? 'bg-orange-500 shadow-sm shadow-orange-500'
-                      : vuLevel > 0.4
-                      ? 'bg-amber-400'
-                      : 'bg-emerald-400'
-                  }`}
-                />
-              </div>
+        {/* Center: Compact Hardware & Sync Controls */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* VU Meter */}
+          <div className="flex items-center gap-1.5 bg-zinc-950 px-2 py-1 rounded-xl border border-zinc-800 shrink-0">
+            <span className="text-[9px] text-zinc-400 font-mono font-bold">MIC</span>
+            <div className="w-10 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                style={{ width: `${Math.min(100, vuLevel * 100)}%` }}
+                className={`h-full rounded-full transition-all duration-75 ${
+                  vuLevel > 0.75 ? 'bg-orange-500' : vuLevel > 0.4 ? 'bg-amber-400' : 'bg-emerald-400'
+                }`}
+              />
             </div>
           </div>
 
-          {/* Mute Speakers During Mic Recording (Anti-bleed) */}
+          {/* Mute Speakers on Record */}
           {onToggleMuteDuringRecording && (
             <button
               id="toggle-mute-rec-btn"
               onClick={onToggleMuteDuringRecording}
-              className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              className={`px-2 py-1 rounded-xl text-[11px] font-bold border transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
                 muteDuringRecording
                   ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-sm'
                   : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
               }`}
-              title="Mute speakers/video sound during microphone recording to eliminate audio bleed & feedback"
+              title="Mute speakers during recording to eliminate mic bleed & echo"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="text-[11px]">{muteDuringRecording ? 'Mute Speakers: ON' : 'Mute Speakers: OFF'}</span>
+              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <span>Mute Spk: {muteDuringRecording ? 'ON' : 'OFF'}</span>
             </button>
           )}
 
-          {/* 3-2-1 Metronome Lead-in */}
+          {/* 3-2-1 Lead-in */}
           <button
             id="toggle-countin-btn"
             onClick={onToggleCountIn}
-            className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+            className={`px-2 py-1 rounded-xl text-[11px] font-bold border transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
               useCountIn
                 ? 'bg-orange-500/20 text-orange-300 border-orange-500/50'
                 : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
             }`}
             title="Toggle 3-second countdown lead-in"
           >
-            <Bell className="w-3.5 h-3.5" />
-            <span className="text-[11px]">3-2-1 Lead In</span>
+            <Bell className="w-3 h-3" />
+            <span>3-2-1</span>
           </button>
 
-          {/* Sync Calibration Offset */}
-          <div className="flex items-center gap-1 bg-zinc-950 px-2.5 py-1 rounded-xl border border-zinc-800 text-[11px] shrink-0">
-            <Clock className="w-3.5 h-3.5 text-zinc-400" />
-            <span className="text-zinc-400">Sync:</span>
+          {/* Sync Offset */}
+          <div className="flex items-center gap-1 bg-zinc-950 px-2 py-1 rounded-xl border border-zinc-800 text-[11px] shrink-0">
+            <Clock className="w-3 h-3 text-zinc-400" />
             <select
               id="latency-offset-select"
               value={latencyOffsetMs}
@@ -186,56 +167,76 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
               className="bg-transparent text-zinc-200 font-bold focus:outline-none cursor-pointer"
               title="Mic latency delay offset"
             >
-              <option value="-150" className="bg-zinc-900">-150ms</option>
               <option value="-100" className="bg-zinc-900">-100ms</option>
               <option value="-50" className="bg-zinc-900">-50ms</option>
               <option value="0" className="bg-zinc-900">0ms</option>
               <option value="50" className="bg-zinc-900">+50ms</option>
               <option value="100" className="bg-zinc-900">+100ms</option>
-              <option value="150" className="bg-zinc-900">+150ms</option>
             </select>
           </div>
 
-          {/* Original Audio Treatment Selector */}
+          {/* Audio Ducking Mode */}
           {onChangeOriginalAudioMode && (
-            <div className="flex items-center gap-1 bg-zinc-950 px-2.5 py-1 rounded-xl border border-zinc-800 text-[11px] shrink-0">
-              <span className="text-zinc-400">Duck:</span>
+            <div className="flex items-center gap-1 bg-zinc-950 px-2 py-1 rounded-xl border border-zinc-800 text-[11px] shrink-0">
               <select
                 id="voice-replacement-mode-select"
                 value={originalAudioMode}
                 onChange={(e) => onChangeOriginalAudioMode(e.target.value as OriginalAudioMode)}
                 className="bg-transparent text-amber-300 font-bold focus:outline-none cursor-pointer"
-                title="Original Audio Treatment: Duck original audio so your voice dub is clear"
+                title="Original Audio Treatment"
               >
-                <option value="duck_5" className="bg-zinc-900">🔉 Duck (5%)</option>
-                <option value="duck_10" className="bg-zinc-900">🔉 Duck (10%)</option>
-                <option value="duck_25" className="bg-zinc-900">🔉 Duck (25%)</option>
-                <option value="mute" className="bg-zinc-900">🔇 Mute (0%)</option>
-                <option value="keep" className="bg-zinc-900">🔊 Keep (100%)</option>
-                <option value="smart_duck" className="bg-zinc-900">⚡ Smart</option>
+                <option value="duck_5" className="bg-zinc-900">Duck (5%)</option>
+                <option value="duck_10" className="bg-zinc-900">Duck (10%)</option>
+                <option value="duck_25" className="bg-zinc-900">Duck (25%)</option>
+                <option value="mute" className="bg-zinc-900">Mute (0%)</option>
+                <option value="keep" className="bg-zinc-900">Keep (100%)</option>
+                <option value="smart_duck" className="bg-zinc-900">Smart Duck</option>
               </select>
             </div>
           )}
         </div>
+
+        {/* Right: Record Action Button */}
+        <div className="shrink-0">
+          {isRecording ? (
+            <button
+              id="stop-recording-btn"
+              onClick={onStopRecording}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-orange-950 border border-orange-400 animate-pulse transition-all transform hover:scale-102 shrink-0 cursor-pointer"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+              <span>Stop (Space)</span>
+            </button>
+          ) : (
+            <button
+              id="start-recording-btn"
+              onClick={onStartRecording}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-orange-950 border border-orange-400/40 transition-all transform hover:scale-102 shrink-0 cursor-pointer"
+            >
+              <Mic className="w-3.5 h-3.5 animate-bounce-subtle" />
+              <span>Record Take (Space)</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Live Line Dubbing Progress Bar & Overtime Status */}
-      {isRecording && recordingLine && (
-        <div className="w-full bg-zinc-950/90 border border-orange-500/40 rounded-2xl p-3 flex flex-col gap-2 shadow-xl shadow-orange-950/30 animate-in fade-in duration-200">
+      {/* Dynamic Bottom Row: Live Line Dubbing Progress Bar (during recording) OR Target Line Cue */}
+      {isRecording && recordingLine ? (
+        <div className="w-full bg-zinc-950/90 border border-orange-500/40 rounded-xl p-2.5 flex flex-col gap-1.5 shadow-inner animate-in fade-in duration-150">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
               {isPreRoll ? (
-                <span className="text-[10px] font-black uppercase tracking-wider text-sky-300 bg-sky-500/20 px-2.5 py-0.5 rounded-full border border-sky-500/40 flex items-center gap-1 animate-pulse">
+                <span className="text-[10px] font-black uppercase tracking-wider text-sky-300 bg-sky-500/20 px-2 py-0.5 rounded-full border border-sky-500/40 flex items-center gap-1 animate-pulse">
                   <Zap className="w-3 h-3 text-sky-400 fill-current" />
                   <span>1s Lead-in • Ready in {Math.abs(elapsed).toFixed(1)}s</span>
                 </span>
               ) : isOvertime ? (
-                <span className="text-[10px] font-black uppercase tracking-wider text-rose-300 bg-rose-500/25 px-2.5 py-0.5 rounded-full border border-rose-500/50 flex items-center gap-1 animate-pulse">
+                <span className="text-[10px] font-black uppercase tracking-wider text-rose-300 bg-rose-500/25 px-2 py-0.5 rounded-full border border-rose-500/50 flex items-center gap-1 animate-pulse">
                   <Clock className="w-3 h-3 text-rose-400" />
                   <span>Overtime: +{(elapsed - lineDur).toFixed(1)}s (Speaking)</span>
                 </span>
               ) : (
-                <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/40 flex items-center gap-1 animate-pulse">
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/40 flex items-center gap-1 animate-pulse">
                   <Mic className="w-3 h-3 text-amber-400" />
                   <span>Dubbing Live Line</span>
                 </span>
@@ -255,55 +256,36 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
             </div>
           </div>
 
-          {/* Animated Glowing Progress Bar */}
-          <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden relative p-0.5 border border-zinc-800">
+          <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden relative p-0.5 border border-zinc-800">
             <div
               className={`h-full rounded-full transition-all duration-75 ${
                 isOvertime
-                  ? 'bg-gradient-to-r from-orange-500 via-amber-400 to-rose-500 shadow-lg shadow-rose-500/50 animate-pulse'
+                  ? 'bg-gradient-to-r from-orange-500 via-amber-400 to-rose-500 shadow-md shadow-rose-500/50 animate-pulse'
                   : isPreRoll
-                  ? 'bg-sky-400 shadow-md shadow-sky-500/50'
-                  : 'bg-gradient-to-r from-orange-500 via-amber-400 to-emerald-400 shadow-md shadow-amber-500/50'
+                  ? 'bg-sky-400 shadow-sm shadow-sky-500/50'
+                  : 'bg-gradient-to-r from-orange-500 via-amber-400 to-emerald-400 shadow-sm shadow-amber-500/50'
               }`}
               style={{ width: `${Math.min(100, Math.max(0, isPreRoll ? 15 : progressPct))}%` }}
             />
           </div>
         </div>
-      )}
-
-      {/* Bottom Row: BIG Action Record Button & Target Text */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-        {/* Active Target Prompt Info */}
-        <div className="text-xs text-zinc-400 flex items-center gap-2 truncate text-center sm:text-left">
-          <span className="text-[11px] uppercase font-bold text-zinc-500">Target:</span>
-          <strong className="text-white font-black">{activeChar?.name}</strong>
-          <span>•</span>
-          <span className="text-amber-300 font-semibold truncate max-w-xs sm:max-w-md">
-            {recordingLine ? `"${recordingLine.text}"` : activeChar?.voiceStyle}
-          </span>
+      ) : (
+        <div className="flex items-center justify-between text-xs text-zinc-400 px-1 pt-0.5 border-t border-zinc-800/60 truncate">
+          <div className="flex items-center gap-2 truncate">
+            <span className="text-[10px] uppercase font-bold text-zinc-500">Target:</span>
+            <strong className="text-white font-bold">{activeChar?.name}</strong>
+            <span>•</span>
+            <span className="text-amber-300/90 font-medium truncate max-w-xs sm:max-w-lg">
+              {recordingLine ? `"${recordingLine.text}"` : activeChar?.voiceStyle}
+            </span>
+          </div>
+          {recordingLine?.cue && (
+            <span className="text-[10px] text-zinc-400 italic hidden sm:inline shrink-0">
+              [{recordingLine.cue}]
+            </span>
+          )}
         </div>
-
-        {/* Action Button */}
-        {isRecording ? (
-          <button
-            id="stop-recording-btn"
-            onClick={onStopRecording}
-            className="flex items-center gap-2.5 px-8 py-3 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm uppercase tracking-wider shadow-xl shadow-orange-950/80 border border-orange-400 animate-pulse transition-all transform hover:scale-105 shrink-0 cursor-pointer"
-          >
-            <Square className="w-4 h-4 fill-current" />
-            <span>Stop Recording (Space)</span>
-          </button>
-        ) : (
-          <button
-            id="start-recording-btn"
-            onClick={onStartRecording}
-            className="flex items-center gap-2.5 px-8 py-3 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-xs sm:text-sm uppercase tracking-wider shadow-xl shadow-orange-950/80 border border-orange-400/40 transition-all transform hover:scale-105 shrink-0 cursor-pointer"
-          >
-            <Mic className="w-4 h-4 animate-bounce-subtle" />
-            <span>Record Take (Space)</span>
-          </button>
-        )}
-      </div>
+      )}
     </div>
   );
 };
