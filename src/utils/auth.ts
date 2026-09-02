@@ -11,7 +11,7 @@ import {
 
 // Public client-side configuration for 'fun-voice-dubber'
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDVw8MVAUma2nxePdRUpzUNeKA6MtZPOFk",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "fun-voice-dubber.firebaseapp.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "fun-voice-dubber",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "fun-voice-dubber.firebasestorage.app",
