@@ -1,4 +1,4 @@
-import { AudioTake, Character, OriginalAudioMode, Player, ScriptData, VideoSource, VoiceEffect, JudgeResult } from '../types';
+import { AudioTake, Character, OriginalAudioMode, Player, ScriptData, VideoSource, VoiceEffect, JudgeResult, VideoCropBounds } from '../types';
 import { PresetClipInfo, PRESET_CLIPS } from './presetClips';
 import { blobToAudioBuffer } from './audioEngine';
 
@@ -33,6 +33,7 @@ interface SavedVideoSourceData {
   hasAudioTrack: boolean;
   trimStartOffset?: number;
   trimEndOffset?: number;
+  cropBounds?: VideoCropBounds;
   videoBlob?: Blob; // Stored for screen captures & uploads
 }
 
@@ -158,6 +159,7 @@ export async function saveDubSession(
         hasAudioTrack: session.videoSource.hasAudioTrack,
         trimStartOffset: session.videoSource.trimStartOffset,
         trimEndOffset: session.videoSource.trimEndOffset,
+        cropBounds: session.videoSource.cropBounds,
         videoBlob: blobToSave || undefined,
       };
     }
@@ -303,6 +305,7 @@ export async function loadDubSession(projectId?: string | null): Promise<{
           hasAudioTrack: data.hasAudioTrack,
           trimStartOffset: data.trimStartOffset,
           trimEndOffset: data.trimEndOffset,
+          cropBounds: data.cropBounds,
         };
       }
     }

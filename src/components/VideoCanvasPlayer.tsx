@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Character, ScriptLine, VideoSource } from '../types';
 import { drawAnimatedScene, PresetClipInfo } from '../utils/presetClips';
-import { Play, Pause, RotateCcw, Volume2, VolumeX, Maximize, Sparkles, Mic, Scissors, ChevronDown } from 'lucide-react';
+import { Play, Pause, RotateCcw, Volume2, VolumeX, Maximize, Sparkles, Mic, Scissors, ChevronDown, Crop } from 'lucide-react';
 
 interface VideoCanvasPlayerProps {
   videoSource: VideoSource | null;
@@ -13,6 +13,7 @@ interface VideoCanvasPlayerProps {
   onSeek: (time: number) => void;
   onTrimBefore?: (time: number) => void;
   onTrimAfter?: (time: number) => void;
+  onOpenCropModal?: () => void;
   currentScriptLines: ScriptLine[];
   characters: Character[];
   activeRecordingCharacterId: string | null;
@@ -37,6 +38,7 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
   onSeek,
   onTrimBefore,
   onTrimAfter,
+  onOpenCropModal,
   currentScriptLines,
   characters,
   activeRecordingCharacterId,
@@ -119,11 +121,9 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
     (line) => line.startTime > currentTime && line.startTime <= currentTime + 2.5
   );
 
-  // Active speaking character info
-  const activeCharacter = characters.find(
-    (c) => c.id === (activeLine?.speakerId || activeRecordingCharacterId)
-  );
+  const activeCharacter = characters.find((c) => c.id === activeRecordingCharacterId);
 
+  // Time formatting helper
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = Math.floor(secs % 60);
@@ -148,13 +148,52 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
     >
       {/* Video Element for Screen Captures & Uploads */}
       {videoSource && (videoSource.type === 'screen_capture' || videoSource.type === 'upload') ? (
-        <video
-          ref={videoRef}
-          src={videoSource.url}
-          playsInline
-          className="absolute inset-0 w-full h-full object-contain"
-          onEnded={() => onSeek(duration)}
-        />
+        <div className="absolute inset-0 w-full h-full overflow-hidden flex items-center justify-center bg-black">
+          {videoSource.cropBounds ? (
+            <div
+              className="relative overflow-hidden shadow-2xl"
+              style={{
+                aspectRatio: `${videoSource.cropBounds.width * (videoSource.width || 1280)} / ${
+                  videoSource.cropBounds.height * (videoSource.height || 720)
+                }`,
+                width:
+                  videoSource.cropBounds.width / videoSource.cropBounds.height >= 16 / 9
+                    ? '100%'
+                    : 'auto',
+                height:
+                  videoSource.cropBounds.width / videoSource.cropBounds.height < 16 / 9
+                    ? '100%'
+                    : 'auto',
+                maxHeight: '100%',
+                maxWidth: '100%',
+              }}
+            >
+              <video
+                ref={videoRef}
+                src={videoSource.url}
+                playsInline
+                className="absolute"
+                style={{
+                  left: `-${(videoSource.cropBounds.x / videoSource.cropBounds.width) * 100}%`,
+                  top: `-${(videoSource.cropBounds.y / videoSource.cropBounds.height) * 100}%`,
+                  width: `${(1 / videoSource.cropBounds.width) * 100}%`,
+                  height: `${(1 / videoSource.cropBounds.height) * 100}%`,
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                }}
+                onEnded={() => onSeek(duration)}
+              />
+            </div>
+          ) : (
+            <video
+              ref={videoRef}
+              src={videoSource.url}
+              playsInline
+              className="absolute inset-0 w-full h-full object-contain"
+              onEnded={() => onSeek(duration)}
+            />
+          )}
+        </div>
       ) : (
         /* Canvas for Preset Animated Clips */
         <canvas
@@ -167,10 +206,24 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
 
       {/* Top Overlay: Clip Title & Recording Status Badge */}
       <div className="relative z-20 flex items-center justify-between p-4 bg-gradient-to-b from-black/85 via-black/35 to-transparent">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="px-2.5 py-1 rounded-lg bg-zinc-900/90 border border-zinc-700/80 text-xs font-bold text-zinc-200">
             {videoSource?.title || presetClip?.title || 'Clip Preview'}
           </span>
+          {videoSource?.cropBounds && onOpenCropModal && (
+            <button
+              onClick={onOpenCropModal}
+              title="Click to adjust video crop bounds"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-500/20 border border-orange-500/40 text-orange-300 text-xs font-bold hover:bg-orange-500/30 transition-all cursor-pointer"
+            >
+              <Crop className="w-3.5 h-3.5" />
+              <span>
+                {videoSource.cropBounds.aspectRatio && videoSource.cropBounds.aspectRatio !== 'free'
+                  ? `${videoSource.cropBounds.aspectRatio} Cropped`
+                  : 'Cropped'}
+              </span>
+            </button>
+          )}
           {isRecording && (
             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-orange-600/90 text-white text-xs font-black animate-pulse shadow-lg shadow-orange-950">
               <span className="w-2 h-2 rounded-full bg-white animate-ping" />
@@ -391,6 +444,23 @@ export const VideoCanvasPlayer: React.FC<VideoCanvasPlayerProps> = ({
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Visual Crop Bounds & Aspect Ratio Button */}
+            {videoSource && onOpenCropModal && (
+              <button
+                id="player-crop-modal-btn"
+                onClick={onOpenCropModal}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer ${
+                  videoSource.cropBounds
+                    ? 'bg-orange-500/20 text-orange-300 border-orange-500/50 hover:bg-orange-500/30'
+                    : 'bg-zinc-900/90 text-zinc-300 border-zinc-700 hover:border-zinc-600 hover:text-white'
+                }`}
+                title="Crop video frame & choose aspect ratio (9:16 Shorts, 16:9, etc.)"
+              >
+                <Crop className="w-3.5 h-3.5 text-orange-400" />
+                <span>Crop Frame</span>
+              </button>
             )}
           </div>
 

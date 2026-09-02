@@ -1,4 +1,4 @@
-import { Character, ScriptLine, Player, JudgeResult, AudioTake } from '../types';
+import { Character, ScriptLine, Player, JudgeResult, AudioTake, VideoCropBounds } from '../types';
 import { getAuthToken } from './auth';
 
 export interface CloudProjectTake {
@@ -26,6 +26,7 @@ export interface CloudProjectPayload {
   duration: number;
   trimStartOffset?: number;
   trimEndOffset?: number;
+  cropBounds?: VideoCropBounds;
   characters: Character[];
   lines: ScriptLine[];
   players?: Player[];

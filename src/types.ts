@@ -60,6 +60,16 @@ export interface AudioTake {
   recordedAt: number;
 }
 
+export type VideoAspectRatio = 'free' | '9:16' | '16:9' | '1:1' | '4:3';
+
+export interface VideoCropBounds {
+  x: number; // 0.0 to 1.0 (left offset fraction)
+  y: number; // 0.0 to 1.0 (top offset fraction)
+  width: number; // 0.0 to 1.0 (width fraction)
+  height: number; // 0.0 to 1.0 (height fraction)
+  aspectRatio?: VideoAspectRatio;
+}
+
 export interface VideoSource {
   type: 'screen_capture' | 'preset' | 'upload';
   url: string;
@@ -71,6 +81,7 @@ export interface VideoSource {
   thumbnailUrl?: string;
   trimStartOffset?: number;
   trimEndOffset?: number;
+  cropBounds?: VideoCropBounds;
 }
 
 export interface JudgePlayerScore {

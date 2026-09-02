@@ -45,10 +45,12 @@ import { ActiveTabRecordingModal } from './components/ActiveTabRecordingModal';
 import { MyProjectsModal } from './components/MyProjectsModal';
 import { HomePage } from './components/HomePage';
 import { ConfirmDiscardModal } from './components/ConfirmDiscardModal';
+import { VideoCropModal } from './components/VideoCropModal';
 import { RotateCcw, Mic, CheckCircle2, ChevronRight, Volume2, Sparkles, UserCheck } from 'lucide-react';
 import { saveDubSession, loadDubSession, clearDubSession, getLastSessionMeta } from './utils/persistence';
 import { AuthUserProfile, signInWithGoogle, signOutUser, subscribeToAuthChanges } from './utils/auth';
 import { CloudProjectPayload, saveProjectToCloud, loadProjectFromCloud, uploadProjectMedia } from './utils/cloudSync';
+import { VideoCropBounds } from './types';
 
 export default function App() {
   // Navigation View: 'home' landing page or 'studio' working DAW workspace
@@ -87,6 +89,7 @@ export default function App() {
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
   const [isMyProjectsOpen, setIsMyProjectsOpen] = useState(false);
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
   const [privacyInitialTab, setPrivacyInitialTab] = useState<'privacy' | 'terms' | 'ai' | 'copyright'>('privacy');
 
   // Active Clip & Video Source
@@ -459,6 +462,7 @@ export default function App() {
         duration,
         trimStartOffset: videoSource?.trimStartOffset || 0,
         trimEndOffset: videoSource?.trimEndOffset || 0,
+        cropBounds: videoSource?.cropBounds,
         characters,
         lines: scriptData.lines,
         players,
@@ -567,6 +571,7 @@ export default function App() {
             hasAudioTrack: true,
             trimStartOffset: project.trimStartOffset || 0,
             trimEndOffset: project.trimEndOffset || 0,
+            cropBounds: project.cropBounds,
           });
           setPresetClip(null);
         } else if (localCached && localCached.videoSource) {
@@ -574,6 +579,7 @@ export default function App() {
             ...localCached.videoSource,
             trimStartOffset: project.trimStartOffset ?? localCached.videoSource.trimStartOffset ?? 0,
             trimEndOffset: project.trimEndOffset ?? localCached.videoSource.trimEndOffset ?? 0,
+            cropBounds: project.cropBounds ?? localCached.videoSource.cropBounds,
           });
           setCurrentVideoBlob(localCached.videoBlob);
           setPresetClip(localCached.presetClip);
@@ -1300,7 +1306,20 @@ export default function App() {
     setTimeout(() => setNotificationToast(null), 5000);
   };
 
-  // Playback Animation Frame Loop
+  // Apply or reset video crop bounding box
+  const handleApplyCropBounds = (cropBounds: VideoCropBounds | undefined) => {
+    if (!videoSource) return;
+    setVideoSource((prev) => (prev ? { ...prev, cropBounds } : null));
+    setHasUnsavedChanges(true);
+    setNotificationToast({
+      message: cropBounds
+        ? `✂️ Video cropped (${cropBounds.aspectRatio && cropBounds.aspectRatio !== 'free' ? cropBounds.aspectRatio : 'custom'}).`
+        : '✂️ Video restored to full frame.',
+      type: 'success',
+    });
+    setTimeout(() => setNotificationToast(null), 4000);
+  };
+
   // Playback Animation Frame Loop
   useEffect(() => {
     if (!isPlaying) return;
@@ -1952,6 +1971,7 @@ export default function App() {
                   onSeek={handleSeek}
                   onTrimBefore={handleTrimBefore}
                   onTrimAfter={handleTrimAfter}
+                  onOpenCropModal={() => setIsCropModalOpen(true)}
                   currentScriptLines={scriptData.lines}
                   characters={characters}
                   activeRecordingCharacterId={activeRecordingCharacterId}
@@ -2233,6 +2253,15 @@ export default function App() {
         onCancel={() => {
           setDiscardModalState({ isOpen: false, pendingAction: null });
         }}
+      />
+
+      {/* Video Crop & Aspect Ratio Selection Modal */}
+      <VideoCropModal
+        isOpen={isCropModalOpen}
+        onClose={() => setIsCropModalOpen(false)}
+        videoSource={videoSource}
+        currentTime={currentTime}
+        onApplyCrop={handleApplyCropBounds}
       />
 
       {/* Cloud Upload Progress & Auto-Retry Modal */}

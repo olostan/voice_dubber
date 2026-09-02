@@ -174,19 +174,56 @@ export const ShowtimeModal: React.FC<ShowtimeModalProps> = ({
       <div className="relative flex-1 flex items-center justify-center my-3 max-h-[78vh]">
         <div className="relative w-full h-full max-w-5xl flex items-center justify-center rounded-3xl overflow-hidden shadow-[0_0_80px_rgba(249,115,22,0.25)] border-2 border-orange-500/40 bg-zinc-950">
           {videoSource?.url ? (
-            <video
-              ref={videoElemRef}
-              src={videoSource.url}
-              playsInline
-              className="w-full h-full object-contain"
-              onClick={onPlayPause}
-            />
+            videoSource.cropBounds ? (
+              <div
+                className="relative overflow-hidden shadow-2xl flex items-center justify-center"
+                style={{
+                  aspectRatio: `${videoSource.cropBounds.width * (videoSource.width || 1280)} / ${
+                    videoSource.cropBounds.height * (videoSource.height || 720)
+                  }`,
+                  width:
+                    videoSource.cropBounds.width / videoSource.cropBounds.height >= 16 / 9
+                      ? '100%'
+                      : 'auto',
+                  height:
+                    videoSource.cropBounds.width / videoSource.cropBounds.height < 16 / 9
+                      ? '100%'
+                      : 'auto',
+                  maxHeight: '100%',
+                  maxWidth: '100%',
+                }}
+              >
+                <video
+                  ref={videoElemRef}
+                  src={videoSource.url}
+                  playsInline
+                  className="absolute cursor-pointer"
+                  style={{
+                    left: `-${(videoSource.cropBounds.x / videoSource.cropBounds.width) * 100}%`,
+                    top: `-${(videoSource.cropBounds.y / videoSource.cropBounds.height) * 100}%`,
+                    width: `${(1 / videoSource.cropBounds.width) * 100}%`,
+                    height: `${(1 / videoSource.cropBounds.height) * 100}%`,
+                    maxWidth: 'none',
+                    maxHeight: 'none',
+                  }}
+                  onClick={onPlayPause}
+                />
+              </div>
+            ) : (
+              <video
+                ref={videoElemRef}
+                src={videoSource.url}
+                playsInline
+                className="w-full h-full object-contain cursor-pointer"
+                onClick={onPlayPause}
+              />
+            )
           ) : (
             <canvas
               ref={canvasRef}
               width={1280}
               height={720}
-              className="w-full h-full object-contain"
+              className="w-full h-full object-contain cursor-pointer"
               onClick={onPlayPause}
             />
           )}
